@@ -4,7 +4,7 @@ on:
   push:
     branches: [ "main" ]
   workflow_dispatch:
- 
+
 jobs:
   build-ipa:
     runs-on: macos-latest
@@ -18,7 +18,6 @@ jobs:
 
       - name: Setup App Entry Point
         run: |
-          # Tự động tạo AppEntry.swift nếu trong repo chưa có file chứa @main
           if ! grep -rq "@main" *.swift 2>/dev/null; then
             echo "Creating AppEntry.swift..."
             cat << 'EOF' > AppEntry.swift
@@ -35,7 +34,7 @@ jobs:
           EOF
           fi
 
-      - name: Generate Xcode Project with XcodeGen
+      - name: Generate Xcode Project with Fullscreen Config
         run: |
           brew install xcodegen
 
@@ -61,6 +60,9 @@ jobs:
                   CODE_SIGNING_REQUIRED: NO
                   CODE_SIGN_IDENTITY: ""
                   OTHER_LDFLAGS: ["-framework", "SwiftUI", "-framework", "UIKit", "-framework", "PhotosUI"]
+                  INFOPLIST_KEY_UILaunchScreen_Generation: YES
+                  INFOPLIST_KEY_UIRequiresFullScreen: YES
+                  INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait"
           EOF
 
           xcodegen generate
