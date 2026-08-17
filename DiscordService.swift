@@ -1,60 +1,138 @@
 import Foundation
 import UIKit
 
+enum DiscordAPIError: LocalizedError {
+    case invalidToken
+    case channelNotFound
+    case missingPermissions(String)
+    case rateLimited
+    case badRequest(String)
+    case serverError(Int, String)
+    case networkError(String)
+    case emptyResponse
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidToken:
+            return "❌ Token không hợp lệ (401): Vui lòng kiểm tra lại Bot Token."
+        case .channelNotFound:
+            return "❌ Không tìm thấy Kênh (404): Channel ID sai hoặc Bot chưa vào Server."
+        case .missingPermissions(let details):
+            return "❌ Bot thiếu quyền (403): Bot chưa được cấp quyền 'Send Messages' hoặc 'Attach Files'. (\(details))"
+        case .rateLimited:
+            return "⚠️ Bị giới hạn tốc độ (429): Gửi quá nhanh, Discord tạm khóa 1-2 phút."
+        case .badRequest(let details):
+            return "❌ Yêu cầu không hợp lệ (400): \(details)"
+        case .serverError(let code, let msg):
+            return "❌ Lỗi Discord API (\(code)): \(msg)"
+        case .networkError(let msg):
+            return "❌ Lỗi mạng: \(msg)"
+        case .emptyResponse:
+            return "❌ Discord không trả về dữ liệu ảnh."
+        }
+    }
+}
+
 actor DiscordService {
     static let shared = DiscordService()
     private init() {}
 
     @MainActor static var botToken: String {
-        get { UserDefaults.standard.string(forKey: "discord_bot_token") ?? "" }
-        set { UserDefaults.standard.setValue(newValue, forKey: "discord_bot_token") }
+        get { UserDefaults.standard.string(forKey: "discord_bot_token")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "" }
+        set { UserDefaults.standard.setValue(newValue.trimmingCharacters(in: .whitespacesAndNewlines), forKey: "discord_bot_token") }
     }
     
     @MainActor static var channelId: String {
-        get { UserDefaults.standard.string(forKey: "discord_channel_id") ?? "" }
-        set { UserDefaults.standard.setValue(newValue, forKey: "discord_channel_id") }
+        get { UserDefaults.standard.string(forKey: "discord_channel_id")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "" }
+        set { UserDefaults.standard.setValue(newValue.trimmingCharacters(in: .whitespacesAndNewlines), forKey: "discord_channel_id") }
     }
 
     @MainActor static var isLoggedIn: Bool {
         return !botToken.isEmpty && !channelId.isEmpty
     }
 
-    func verifyConnection() async -> Bool {
-        let token = await DiscordService.botToken
-        let channel = await DiscordService.channelId
-
-        guard let url = URL(string: "https://discord.com/api/v10/channels/\(channel)") else { return false }
+    /// Phân tích phản hồi lỗi từ Discord
+    private func parseError(statusCode: Int, data: Data) -> DiscordAPIError {
+        let rawMessage = String(data: data, encoding: .utf8) ?? ""
         
-        var request = URLRequest(url: url)
-        request.setValue("Bot \(token)", forHTTPHeaderField: "Authorization")
-        
-        do {
-            let (_, response) = try await URLSession.shared.data(for: request)
-            return (response as? HTTPURLResponse)?.statusCode == 200
-        } catch {
-            return false
+        switch statusCode {
+        case 401:
+            return .invalidToken
+        case 403:
+            return .missingPermissions(rawMessage)
+        case 404:
+            return .channelNotFound
+        case 429:
+            return .rateLimited
+        case 400:
+            return .badRequest(rawMessage)
+        default:
+            return .serverError(statusCode, rawMessage)
         }
     }
 
-    /// Kéo toàn bộ ảnh đã lưu trên server Discord về máy
+    /// Bước 1: Kiểm tra kết nối
+    func verifyConnection() async throws {
+        let token = await DiscordService.botToken
+        let channel = await DiscordService.channelId
+
+        guard !token.isEmpty else { throw DiscordAPIError.invalidToken }
+        guard !channel.isEmpty else { throw DiscordAPIError.channelNotFound }
+        guard let url = URL(string: "https://discord.com/api/v10/channels/\(channel)") else {
+            throw DiscordAPIError.networkError("URL Kênh không hợp lệ")
+        }
+
+        var request = URLRequest(url: url)
+        request.setValue("Bot \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("DiscordBot (https://github.com, 1.0.0)", forHTTPHeaderField: "User-Agent")
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw DiscordAPIError.networkError("Không nhận được phản hồi từ server")
+            }
+
+            if httpResponse.statusCode != 200 {
+                throw parseError(statusCode: httpResponse.statusCode, data: data)
+            }
+        } catch let apiErr as DiscordAPIError {
+            throw apiErr
+        } catch {
+            throw DiscordAPIError.networkError(error.localizedDescription)
+        }
+    }
+
+    /// Bước 2: Lấy danh sách ảnh
     func fetchChannelMedia(limit: Int = 100) async throws -> [MediaItem] {
         let token = await DiscordService.botToken
         let channel = await DiscordService.channelId
 
         guard let url = URL(string: "https://discord.com/api/v10/channels/\(channel)/messages?limit=\(limit)") else {
-            throw URLError(.badURL)
+            throw DiscordAPIError.networkError("URL không hợp lệ")
         }
 
         var request = URLRequest(url: url)
         request.setValue("Bot \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("DiscordBot (https://github.com, 1.0.0)", forHTTPHeaderField: "User-Agent")
 
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-            throw URLError(.badServerResponse)
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: request)
+        } catch {
+            throw DiscordAPIError.networkError(error.localizedDescription)
+        }
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw DiscordAPIError.networkError("Không thể kết nối Internet")
+        }
+
+        if httpResponse.statusCode != 200 {
+            throw parseError(statusCode: httpResponse.statusCode, data: data)
         }
 
         guard let messages = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
-            return []
+            throw DiscordAPIError.badRequest("Lỗi phân giải cấu trúc JSON tin nhắn")
         }
 
         var fetchedItems: [MediaItem] = []
@@ -73,12 +151,11 @@ actor DiscordService {
                             id: attId,
                             messageId: messageId,
                             remoteURL: urlString,
-                            localImage: nil,
+                            localPath: nil,
                             timestamp: Date(),
                             syncStatus: .synced(remoteURL: urlString),
                             filename: filename,
-                            fileSize: size,
-                            isEncrypted: false
+                            fileSize: size
                         )
                         fetchedItems.append(item)
                     }
@@ -88,21 +165,21 @@ actor DiscordService {
         return fetchedItems
     }
 
-    /// Tải ảnh lên kênh Discord
+    /// Bước 3: Upload ảnh lên Discord
     func uploadMedia(imageData: Data, filename: String) async throws -> (url: String, messageId: String) {
         let token = await DiscordService.botToken
         let channel = await DiscordService.channelId
 
         guard let url = URL(string: "https://discord.com/api/v10/channels/\(channel)/messages") else {
-            throw URLError(.badURL)
+            throw DiscordAPIError.networkError("URL Upload không hợp lệ")
         }
 
+        let boundary = "Boundary-\(UUID().uuidString)"
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("Bot \(token)", forHTTPHeaderField: "Authorization")
-
-        let boundary = "Boundary-\(UUID().uuidString)"
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        request.setValue("DiscordBot (https://github.com, 1.0.0)", forHTTPHeaderField: "User-Agent")
 
         var body = Data()
         body.append("--\(boundary)\r\n".data(using: .utf8)!)
@@ -111,9 +188,20 @@ actor DiscordService {
         body.append(imageData)
         body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
 
-        let (data, response) = try await URLSession.shared.upload(for: request, from: body)
-        guard let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) else {
-            throw URLError(.badServerResponse)
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.upload(for: request, from: body)
+        } catch {
+            throw DiscordAPIError.networkError("Mạng gián đoạn khi đang upload: \(error.localizedDescription)")
+        }
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw DiscordAPIError.networkError("Không nhận được phản hồi từ Discord")
+        }
+
+        if !(200...299).contains(httpResponse.statusCode) {
+            throw parseError(statusCode: httpResponse.statusCode, data: data)
         }
 
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -121,14 +209,16 @@ actor DiscordService {
               let attachments = json["attachments"] as? [[String: Any]],
               let firstAtt = attachments.first,
               let remoteURL = firstAtt["url"] as? String else {
-            throw URLError(.cannotParseResponse)
+            throw DiscordAPIError.badRequest("Không tìm thấy link đính kèm sau khi upload")
         }
 
         return (url: remoteURL, messageId: messageId)
     }
 
     func downloadMediaData(url: URL) async throws -> Data {
-        let (data, _) = try await URLSession.shared.data(from: url)
+        var request = URLRequest(url: url)
+        request.setValue("DiscordBot (https://github.com, 1.0.0)", forHTTPHeaderField: "User-Agent")
+        let (data, _) = try await URLSession.shared.data(for: request)
         return data
     }
 
@@ -136,17 +226,13 @@ actor DiscordService {
         let token = await DiscordService.botToken
         let channel = await DiscordService.channelId
 
-        guard let url = URL(string: "https://discord.com/api/v10/channels/\(channel)/messages/\(messageId)") else {
-            throw URLError(.badURL)
-        }
+        guard let url = URL(string: "https://discord.com/api/v10/channels/\(channel)/messages/\(messageId)") else { return }
 
         var request = URLRequest(url: url)
         request.httpMethod = "DELETE"
         request.setValue("Bot \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("DiscordBot (https://github.com, 1.0.0)", forHTTPHeaderField: "User-Agent")
 
-        let (_, response) = try await URLSession.shared.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) else {
-            throw URLError(.badServerResponse)
-        }
+        let _ = try? await URLSession.shared.data(for: request)
     }
 }
