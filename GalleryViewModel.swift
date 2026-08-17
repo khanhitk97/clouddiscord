@@ -17,13 +17,21 @@ class GalleryViewModel {
         UserDefaults.standard.setValue(enabled, forKey: "auto_full_sync_enabled")
     }
 
+    var totalCloudStorageFormatted: String {
+        let bytes = items.reduce(0) { $0 + $1.fileSize }
+        let mb = Double(bytes) / (1024 * 1024)
+        if mb >= 1024 {
+            return String(format: "%.2f GB", mb / 1024)
+        }
+        return String(format: "%.1f MB", mb)
+    }
+
     init() {
         Task {
             await loadCloudMedia()
         }
     }
 
-    /// Kéo toàn bộ ảnh từ Discord về app
     @MainActor
     func loadCloudMedia() async {
         guard DiscordService.isLoggedIn else {
@@ -32,28 +40,24 @@ class GalleryViewModel {
         }
 
         isLoadingCloud = true
-        syncProgressText = "Đang tải danh sách ảnh..."
+        syncProgressText = "Đang tải ảnh từ Cloud..."
 
         do {
             let cloudItems = try await DiscordService.shared.fetchChannelMedia()
-            
-            // Giữ lại các ảnh local đang chờ up
             let localPending = items.filter {
                 if case .localOnly = $0.syncStatus { return true }
                 if case .syncing = $0.syncStatus { return true }
                 return false
             }
-            
             self.items = localPending + cloudItems
-            syncProgressText = "Đã tải \(cloudItems.count) ảnh từ Cloud"
+            syncProgressText = "Đã tải \(cloudItems.count) mục"
         } catch {
-            syncProgressText = "Lỗi kết nối Discord: Vui lòng kiểm tra Token/ID"
+            syncProgressText = "Lỗi: \(error.localizedDescription)"
         }
 
         isLoadingCloud = false
     }
 
-    /// Quét và nạp toàn bộ thư viện máy vào hàng đợi
     @MainActor
     func syncAllDevicePhotos() async {
         let status = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
@@ -62,7 +66,7 @@ class GalleryViewModel {
             return
         }
 
-        syncProgressText = "Đang nạp ảnh thiết bị..."
+        syncProgressText = "Đang quét thư viện ảnh..."
         let fetchOptions = PHFetchOptions()
         fetchOptions.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
         let allPhotos = PHAsset.fetchAssets(with: .image, options: fetchOptions)
@@ -72,24 +76,24 @@ class GalleryViewModel {
         requestOptions.isSynchronous = false
         requestOptions.deliveryMode = .highQualityFormat
 
-        var count = 0
+        var newPhotosCount = 0
         allPhotos.enumerateObjects { asset, _, _ in
             imageManager.requestImage(
                 for: asset,
-                targetSize: CGSize(width: 1200, height: 1200),
+                targetSize: CGSize(width: 1400, height: 1400),
                 contentMode: .aspectFit,
                 options: requestOptions
             ) { image, _ in
-                if let valid = image {
+                if let validImage = image {
                     Task { @MainActor in
-                        self.addLocalImage(valid)
+                        self.addLocalImage(validImage)
                     }
                 }
             }
-            count += 1
+            newPhotosCount += 1
         }
 
-        syncProgressText = "Đã thêm \(count) ảnh vào hàng chờ"
+        syncProgressText = "Đã xếp hàng \(newPhotosCount) ảnh"
         await triggerSyncAll()
     }
 
@@ -102,18 +106,17 @@ class GalleryViewModel {
             localImage: image,
             timestamp: Date(),
             syncStatus: .localOnly,
-            filename: "image_\(Int(Date().timeIntervalSince1970))_\(items.count).jpg",
-            fileSize: image.jpegData(compressionQuality: 0.8)?.count ?? 0,
-            isEncrypted: false
+            filename: "media_\(Int(Date().timeIntervalSince1970))_\(items.count).jpg",
+            fileSize: image.jpegData(compressionQuality: 0.85)?.count ?? 0,
+            isEncrypted: true
         )
         items.insert(newItem, at: 0)
     }
 
-    /// Đồng bộ tải ảnh lên Discord
     @MainActor
     func triggerSyncAll() async {
         guard DiscordService.isLoggedIn else {
-            syncProgressText = "Vui lòng đăng nhập Discord trước"
+            syncProgressText = "Vui lòng kết nối Discord"
             return
         }
 
@@ -127,16 +130,16 @@ class GalleryViewModel {
         }
 
         if pendingIndices.isEmpty {
-            syncProgressText = "Đã sao lưu toàn bộ"
+            syncProgressText = "Tất cả file đã được sao lưu"
             isSyncing = false
             return
         }
 
         for (index, idx) in pendingIndices.enumerated() {
-            syncProgressText = "Đang tải lên \(index + 1)/\(pendingIndices.count)..."
+            syncProgressText = "Đang mã hóa & tải lên \(index + 1)/\(pendingIndices.count)..."
             items[idx].syncStatus = .syncing(progress: 0.5)
 
-            if let image = items[idx].localImage, let jpegData = image.jpegData(compressionQuality: 0.8) {
+            if let image = items[idx].localImage, let jpegData = image.jpegData(compressionQuality: 0.85) {
                 do {
                     let result = try await DiscordService.shared.uploadMedia(
                         imageData: jpegData,
@@ -145,6 +148,7 @@ class GalleryViewModel {
                     items[idx].syncStatus = .synced(remoteURL: result.url)
                     items[idx].remoteURL = result.url
                     items[idx].messageId = result.messageId
+                    items[idx].fileSize = jpegData.count
                 } catch {
                     items[idx].syncStatus = .failed
                 }
@@ -152,7 +156,7 @@ class GalleryViewModel {
         }
 
         isSyncing = false
-        syncProgressText = "Đồng bộ thành công"
+        syncProgressText = "Đồng bộ hoàn tất"
     }
 
     @MainActor
@@ -172,5 +176,24 @@ class GalleryViewModel {
             }
         }
         items.removeAll { ids.contains($0.id) }
+    }
+
+    @MainActor
+    func freeUpLocalMemory() {
+        for idx in items.indices {
+            if case .synced = items[idx].syncStatus {
+                items[idx].localImage = nil
+            }
+        }
+        syncProgressText = "Đã giải phóng bộ nhớ đệm máy"
+    }
+
+    /// Tải và giải mã hình ảnh an toàn
+    func downloadAndDecryptMedia(url: URL, isEncrypted: Bool) async throws -> Data {
+        let rawData = try await DiscordService.shared.downloadMediaData(url: url)
+        if isEncrypted {
+            return try EncryptionService.shared.decrypt(data: rawData)
+        }
+        return rawData
     }
 }
