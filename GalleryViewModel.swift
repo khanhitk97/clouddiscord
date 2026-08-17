@@ -17,7 +17,6 @@ class GalleryViewModel {
         UserDefaults.standard.setValue(enabled, forKey: "auto_full_sync_enabled")
     }
 
-    /// Tổng dung lượng đám mây đã sử dụng (định dạng MB / GB)
     var totalCloudStorageFormatted: String {
         let bytes = items.reduce(0) { $0 + $1.fileSize }
         let mb = Double(bytes) / (1024 * 1024)
@@ -142,8 +141,8 @@ class GalleryViewModel {
 
             if let image = items[idx].localImage, let jpegData = image.jpegData(compressionQuality: 0.85) {
                 do {
-                    let result = try await DiscordService.shared.uploadEncryptedMedia(
-                        rawData: jpegData,
+                    let result = try await DiscordService.shared.uploadMedia(
+                        imageData: jpegData,
                         filename: items[idx].filename
                     )
                     items[idx].syncStatus = .synced(remoteURL: result.url)
@@ -179,7 +178,6 @@ class GalleryViewModel {
         items.removeAll { ids.contains($0.id) }
     }
 
-    /// Tính năng TeraBox: Xóa bản sao lưu trên bộ nhớ RAM của máy để giải phóng RAM
     @MainActor
     func freeUpLocalMemory() {
         for idx in items.indices {
