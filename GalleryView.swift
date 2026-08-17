@@ -26,7 +26,7 @@ struct GalleryView: View {
                     .padding(.horizontal, 16)
                     .padding(.top, 10)
 
-                    // Lưới hiển thị ảnh thực tế
+                    // Lưới hiển thị ảnh
                     if viewModel.items.isEmpty && !viewModel.isLoadingCloud {
                         VStack(spacing: 12) {
                             Image(systemName: "photo.on.rectangle.angled")
@@ -118,7 +118,7 @@ struct GalleryView: View {
     }
 }
 
-// Thẻ hiển thị ảnh: Render cả ảnh cục bộ lẫn ảnh tải từ Discord CDN
+// 1. Thẻ hiển thị từng ảnh
 struct ModernPhotoCard: View {
     let item: MediaItem
 
@@ -190,7 +190,109 @@ struct ModernPhotoCard: View {
     }
 }
 
-// Chi tiết xem ảnh phóng to
+// 2. Thẻ trạng thái Server / Account
+struct CloudStatusCard: View {
+    let isLoggedIn: Bool
+    let itemCount: Int
+    var onLoginTap: () -> Void
+
+    var body: some View {
+        HStack(spacing: 14) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(isLoggedIn ? Color(hex: "5865F2").opacity(0.2) : Color.orange.opacity(0.2))
+                    .frame(width: 44, height: 44)
+                
+                Image(systemName: isLoggedIn ? "externaldrive.badge.checkmark" : "bolt.slash.fill")
+                    .foregroundStyle(isLoggedIn ? Color(hex: "5865F2") : .orange)
+            }
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(isLoggedIn ? "Discord Storage Đã Kết Nối" : "Chưa Kết Nối Discord")
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(.white)
+
+                Text(isLoggedIn ? "\(itemCount) mục trong kho lưu trữ" : "Bấm để thiết lập Bot Token")
+                    .font(.caption)
+                    .foregroundStyle(.gray)
+            }
+
+            Spacer()
+
+            if !isLoggedIn {
+                Button("Kết nối", action: onLoginTap)
+                    .font(.caption)
+                    .fontWeight(.bold)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(Color(hex: "5865F2"))
+                    .foregroundStyle(.white)
+                    .clipShape(Capsule())
+            }
+        }
+        .padding(12)
+        .background(Color.white.opacity(0.05))
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(Color.white.opacity(0.1), lineWidth: 1)
+        )
+    }
+}
+
+// 3. Thanh điều khiển đồng bộ ghim đáy
+struct ModernSyncBar: View {
+    let isSyncing: Bool
+    let progressText: String
+    let onSyncTap: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ZStack {
+                Circle()
+                    .fill(Color(hex: "5865F2").opacity(0.2))
+                    .frame(width: 36, height: 36)
+                
+                Image(systemName: "icloud.and.arrow.up.fill")
+                    .font(.system(size: 14))
+                    .foregroundStyle(Color(hex: "5865F2"))
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(progressText)
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                    .foregroundStyle(.white)
+            }
+
+            Spacer()
+
+            Button(action: onSyncTap) {
+                Text(isSyncing ? "Đang xử lý..." : "Đồng bộ")
+                    .font(.subheadline)
+                    .fontWeight(.bold)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(Color(hex: "5865F2"))
+                    .clipShape(Capsule())
+                    .foregroundStyle(.white)
+            }
+            .disabled(isSyncing)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(Color.white.opacity(0.15), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.4), radius: 12, y: 6)
+    }
+}
+
+// 4. Chi tiết xem ảnh phóng to
 struct DetailMediaViewer: View {
     let item: MediaItem
     @Environment(\.dismiss) private var dismiss
