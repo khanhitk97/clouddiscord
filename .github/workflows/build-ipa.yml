@@ -1,0 +1,46 @@
+name: Build iOS IPA
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch: # Cho phép bấm nút "Run workflow" thủ công bất cứ lúc nào
+
+jobs:
+  build-ipa:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Select Xcode version
+        run: sudo xcode-select -switch /Applications/Xcode.app
+
+      - name: Build .app with xcodebuild
+        run: |
+          xcodebuild clean build \
+            -project "YourProjectName.xcodeproj" \
+            -scheme "YourProjectName" \
+            -sdk iphoneos \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            BUILD_DIR="${{ runner.temp }}/build"
+
+      - name: Package .app into .ipa
+        run: |
+          cd ${{ runner.temp }}/build/Release-iphoneos
+          mkdir -p Payload
+          cp -r *.app Payload/
+          zip -r "${{ github.event.repository.name }}.ipa" Payload
+          mkdir -p ${{ github.workspace }}/output
+          mv *.ipa ${{ github.workspace }}/output/
+
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: App-IPA
+          path: output/*.ipa
+          retention-days: 14
