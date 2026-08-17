@@ -5,7 +5,7 @@ enum SyncStatus: Equatable {
     case syncing(progress: Double)
     case synced(remoteURL: String)
     case failed
-}
+} 
 
 struct MediaItem: Identifiable, Equatable {
     let id: String
