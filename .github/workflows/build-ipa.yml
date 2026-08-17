@@ -13,12 +13,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Create App Entry Point if missing
+      - name: Select Xcode version
+        run: sudo xcode-select -switch /Applications/Xcode.app
+
+      - name: Setup App Entry and Project Structure
         run: |
-          # Tự động tạo file khởi chạy @main nếu trong repo chưa có
-          if ! grep -rq "@main" .; then
-            echo "Đang tạo CloudDiscordApp.swift..."
-            cat << 'EOF' > CloudDiscordApp.swift
+          # 1. Tạo file AppEntry.swift nếu chưa có file chứa @main
+          if ! grep -rq "@main" *.swift 2>/dev/null; then
+            echo "Creating AppEntry.swift..."
+            cat << 'EOF' > AppEntry.swift
           import SwiftUI
 
           @main
@@ -32,11 +35,10 @@ jobs:
           EOF
           fi
 
-      - name: Generate Xcode Project with XcodeGen
-        run: |
+          # 2. Cài đặt xcodegen
           brew install xcodegen
-          
-          # Tạo file định nghĩa project
+
+          # 3. Tạo cấu hình project.yml chuẩn
           cat << 'EOF' > project.yml
           name: CloudDiscord
           options:
@@ -58,8 +60,11 @@ jobs:
                   CODE_SIGNING_ALLOWED: NO
                   CODE_SIGNING_REQUIRED: NO
                   CODE_SIGN_IDENTITY: ""
+                  SWIFT_OBJC_BRIDGING_HEADER: ""
+                  OTHER_LDFLAGS: ["-framework", "SwiftUI", "-framework", "UIKit"]
           EOF
 
+          # 4. Sinh file Xcode Project sạch
           xcodegen generate
 
       - name: Build .app with xcodebuild
@@ -79,7 +84,7 @@ jobs:
         run: |
           cd ${{ runner.temp }}/build/Release-iphoneos
           mkdir -p Payload
-          cp -r *.app Payload/
+          cp -r CloudDiscord.app Payload/ 2>/dev/null || cp -r *.app Payload/
           zip -r "CloudDiscord.ipa" Payload
           mkdir -p ${{ github.workspace }}/output
           mv CloudDiscord.ipa ${{ github.workspace }}/output/
