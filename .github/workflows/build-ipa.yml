@@ -13,26 +13,60 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Select Xcode version
-        run: sudo xcode-select -switch /Applications/Xcode.app
-
-      - name: Find & Build Xcode Project
+      - name: Create App Entry Point if missing
         run: |
-          # Tự động tìm file .xcodeproj trong toàn bộ thư mục repo
-          PROJECT_PATH=$(find . -name "*.xcodeproj" -maxdepth 3 | head -n 1)
-          
-          if [ -z "$PROJECT_PATH" ]; then
-            echo "❌ Không tìm thấy file .xcodeproj nào trong repository!"
-            echo "Danh sách các file hiện có:"
-            ls -la
-            exit 1
+          # Tự động tạo file khởi chạy @main nếu trong repo chưa có
+          if ! grep -rq "@main" .; then
+            echo "Đang tạo CloudDiscordApp.swift..."
+            cat << 'EOF' > CloudDiscordApp.swift
+          import SwiftUI
+
+          @main
+          struct CloudDiscordApp: App {
+              var body: some Scene {
+                  WindowGroup {
+                      GalleryView()
+                  }
+              }
+          }
+          EOF
           fi
 
-          echo "🔍 Đã tìm thấy dự án tại: $PROJECT_PATH"
+      - name: Generate Xcode Project with XcodeGen
+        run: |
+          brew install xcodegen
+          
+          # Tạo file định nghĩa project
+          cat << 'EOF' > project.yml
+          name: CloudDiscord
+          options:
+            bundleIdPrefix: com.clouddiscord
+            deploymentTarget:
+              iOS: "17.0"
+          targets:
+            CloudDiscord:
+              type: application
+              platform: iOS
+              sources:
+                - path: .
+                  includes:
+                    - "*.swift"
+              settings:
+                base:
+                  PRODUCT_BUNDLE_IDENTIFIER: com.clouddiscord.app
+                  GENERATE_INFOPLIST_FILE: YES
+                  CODE_SIGNING_ALLOWED: NO
+                  CODE_SIGNING_REQUIRED: NO
+                  CODE_SIGN_IDENTITY: ""
+          EOF
 
+          xcodegen generate
+
+      - name: Build .app with xcodebuild
+        run: |
           xcodebuild clean build \
-            -project "$PROJECT_PATH" \
-            -scheme "CloudDiscord" \
+            -project CloudDiscord.xcodeproj \
+            -scheme CloudDiscord \
             -sdk iphoneos \
             -configuration Release \
             -destination "generic/platform=iOS" \
