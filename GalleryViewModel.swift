@@ -1,5 +1,6 @@
 import SwiftUI
 import Observation
+import Photos
 
 @Observable
 class GalleryViewModel {
@@ -8,13 +9,21 @@ class GalleryViewModel {
     var isLoadingCloud: Bool = false
     var syncProgressText: String = "Sẵn sàng"
 
+    var isAutoFullSyncEnabled: Bool {
+        UserDefaults.standard.bool(forKey: "auto_full_sync_enabled")
+    }
+
+    func setAutoFullSync(_ enabled: Bool) {
+        UserDefaults.standard.setValue(enabled, forKey: "auto_full_sync_enabled")
+    }
+
     init() {
         Task {
             await loadCloudMedia()
         }
     }
 
-    /// Tải toàn bộ danh sách ảnh thực tế từ kênh Discord
+    /// Kéo toàn bộ ảnh từ Discord
     @MainActor
     func loadCloudMedia() async {
         guard DiscordService.isLoggedIn else {
@@ -23,28 +32,64 @@ class GalleryViewModel {
         }
 
         isLoadingCloud = true
-        syncProgressText = "Đang tải ảnh từ Discord..."
+        syncProgressText = "Đang tải ảnh từ Cloud..."
 
         do {
             let cloudItems = try await DiscordService.shared.fetchChannelMedia()
-            
-            // Giữ lại các ảnh local đang chờ upload (nếu có)
             let localPending = items.filter {
                 if case .localOnly = $0.syncStatus { return true }
                 if case .syncing = $0.syncStatus { return true }
                 return false
             }
-            
             self.items = localPending + cloudItems
-            syncProgressText = "Đã tải \(cloudItems.count) ảnh từ Cloud"
+            syncProgressText = "Đã tải \(cloudItems.count) ảnh"
         } catch {
-            syncProgressText = "Không thể tải ảnh: \(error.localizedDescription)"
+            syncProgressText = "Lỗi tải ảnh: \(error.localizedDescription)"
         }
 
         isLoadingCloud = false
     }
 
-    /// Thêm ảnh từ máy vào hàng đợi
+    /// Tự động quét toàn bộ thư viện ảnh của thiết bị và đưa vào hàng đợi
+    @MainActor
+    func syncAllDevicePhotos() async {
+        let status = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
+        guard status == .authorized || status == .limited else {
+            syncProgressText = "Chưa cấp quyền truy cập Ảnh"
+            return
+        }
+
+        syncProgressText = "Đang quét thư viện ảnh..."
+        let fetchOptions = PHFetchOptions()
+        fetchOptions.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
+        let allPhotos = PHAsset.fetchAssets(with: .image, options: fetchOptions)
+
+        let imageManager = PHImageManager.default()
+        let requestOptions = PHImageRequestOptions()
+        requestOptions.isSynchronous = false
+        requestOptions.deliveryMode = .highQualityFormat
+
+        var newPhotosCount = 0
+        allPhotos.enumerateObjects { asset, _, _ in
+            imageManager.requestImage(
+                for: asset,
+                targetSize: CGSize(width: 1200, height: 1200),
+                contentMode: .aspectFit,
+                options: requestOptions
+            ) { image, _ in
+                if let validImage = image {
+                    Task { @MainActor in
+                        self.addLocalImage(validImage)
+                    }
+                }
+            }
+            newPhotosCount += 1
+        }
+
+        syncProgressText = "Đã thêm \(newPhotosCount) ảnh vào hàng đợi"
+        await triggerSyncAll()
+    }
+
     @MainActor
     func addLocalImage(_ image: UIImage) {
         let newItem = MediaItem(
@@ -53,16 +98,16 @@ class GalleryViewModel {
             localImage: image,
             timestamp: Date(),
             syncStatus: .localOnly,
-            filename: "photo_\(Int(Date().timeIntervalSince1970)).jpg"
+            filename: "photo_\(Int(Date().timeIntervalSince1970))_\(items.count).jpg"
         )
         items.insert(newItem, at: 0)
     }
 
-    /// Bắt đầu đồng bộ các ảnh chưa tải lên
+    /// Upload toàn bộ ảnh local chưa sync lên Discord
     @MainActor
     func triggerSyncAll() async {
         guard DiscordService.isLoggedIn else {
-            syncProgressText = "Vui lòng đăng nhập trước"
+            syncProgressText = "Vui lòng kết nối Discord"
             return
         }
 
