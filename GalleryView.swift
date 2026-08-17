@@ -16,7 +16,7 @@ struct GalleryView: View {
     @State private var isDownloading = false
     @State private var downloadToastMessage: String?
 
-    // Lưới 5 cột cố định, tỉ lệ vuông
+    // Lưới 5 cột cố định tỉ lệ vuông
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 2), count: 5)
 
     var body: some View {
@@ -26,14 +26,14 @@ struct GalleryView: View {
 
                 ScrollView {
                     VStack(spacing: 8) {
-                        // Thẻ Cloud Status Card
+                        // Thẻ Cloud Status
                         CloudStatusCard(
                             isLoggedIn: DiscordService.isLoggedIn,
                             itemCount: viewModel.items.count,
                             onLoginTap: { showLoginSheet = true }
                         )
-                        .padding(.horizontal, 10)
-                        .padding(.top, 4)
+                        .padding(.horizontal, CGFloat(10))
+                        .padding(.top, CGFloat(4))
 
                         // Lưới hiển thị ảnh/video
                         if viewModel.items.isEmpty && !viewModel.isLoadingCloud {
@@ -46,7 +46,7 @@ struct GalleryView: View {
                                     .foregroundStyle(Color.gray)
                             }
                             .frame(maxWidth: .infinity)
-                            .padding(.top, 80)
+                            .padding(.top, CGFloat(80))
                         } else {
                             LazyVGrid(columns: columns, spacing: 2) {
                                 ForEach(viewModel.items) { item in
@@ -70,13 +70,13 @@ struct GalleryView: View {
                             }
                         }
                     }
-                    .padding(.bottom, 110)
+                    .padding(.bottom, CGFloat(110))
                 }
                 .refreshable {
                     await viewModel.loadCloudMedia()
                 }
 
-                // Thanh điều khiển ghim đáy: Tùy biến theo chế độ chọn nhiều hoặc đồng bộ
+                // Thanh điều khiển đáy
                 if isSelectingMultiple {
                     MultiSelectBottomBar(
                         selectedCount: selectedItemIDs.count,
@@ -87,8 +87,8 @@ struct GalleryView: View {
                             selectedItemIDs.removeAll()
                         }
                     )
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 12)
+                    .padding(.horizontal, CGFloat(16))
+                    .padding(.bottom, CGFloat(12))
                 } else {
                     ModernSyncBar(
                         isSyncing: viewModel.isSyncing,
@@ -101,21 +101,21 @@ struct GalleryView: View {
                             }
                         }
                     )
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 12)
+                    .padding(.horizontal, CGFloat(16))
+                    .padding(.bottom, CGFloat(12))
                 }
 
-                // Thông báo Toast khi tải về thành công
+                // Toast thông báo
                 if let message = downloadToastMessage {
                     Text(message)
                         .font(.caption)
                         .fontWeight(.semibold)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 10)
+                        .padding(.horizontal, CGFloat(16))
+                        .padding(.vertical, CGFloat(10))
                         .background(.ultraThinMaterial)
                         .clipShape(Capsule())
-                        .foregroundStyle(.white)
-                        .padding(.bottom, 80)
+                        .foregroundStyle(Color.white)
+                        .padding(.bottom, CGFloat(80))
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
@@ -231,7 +231,6 @@ struct GalleryView: View {
         }
     }
 
-    /// Tải nhiều ảnh/video về Camera Roll
     private func downloadSelectedItems() {
         guard !selectedItemIDs.isEmpty else { return }
         isDownloading = true
@@ -274,7 +273,7 @@ struct GalleryView: View {
     }
 }
 
-// Thẻ hiển thị ô ảnh hỗ trợ chế độ chọn
+// 1. Thẻ hiển thị từng ô ảnh vuông có hỗ trợ chế độ chọn
 struct SelectableMediaCard: View {
     let item: MediaItem
     let isSelectMode: Bool
@@ -283,7 +282,6 @@ struct SelectableMediaCard: View {
     var body: some View {
         GeometryReader { geo in
             ZStack(alignment: .topTrailing) {
-                // Media Thumbnail
                 Group {
                     if let local = item.localImage {
                         Image(uiImage: local)
@@ -316,13 +314,12 @@ struct SelectableMediaCard: View {
                     }
                 }
 
-                // Checkbox chọn nhiều ở góc trên
                 if isSelectMode {
                     ZStack {
                         Circle()
                             .fill(isSelected ? Color(hex: "5865F2") : Color.black.opacity(0.4))
                             .frame(width: 18, height: 18)
-                        
+
                         if isSelected {
                             Image(systemName: "checkmark")
                                 .font(.system(size: 9, weight: .bold))
@@ -333,10 +330,9 @@ struct SelectableMediaCard: View {
                                 .frame(width: 18, height: 18)
                         }
                     }
-                    .padding(3)
+                    .padding(CGFloat(3))
                 }
 
-                // Badge đồng bộ ở góc dưới
                 if !isSelectMode {
                     VStack {
                         Spacer()
@@ -360,9 +356,9 @@ struct SelectableMediaCard: View {
                                         .foregroundStyle(Color.red)
                                 }
                             }
-                            .padding(2)
+                            .padding(CGFloat(2))
                             .background(Color.black.opacity(0.5), in: RoundedRectangle(cornerRadius: 3))
-                            .padding(2)
+                            .padding(CGFloat(2))
                         }
                     }
                 }
@@ -373,7 +369,96 @@ struct SelectableMediaCard: View {
     }
 }
 
-// Thanh thao tác khi chọn nhiều mục (Tải về / Hủy)
+// 2. Thẻ trạng thái kết nối Cloud
+struct CloudStatusCard: View {
+    let isLoggedIn: Bool
+    let itemCount: Int
+    var onLoginTap: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: isLoggedIn ? "externaldrive.badge.checkmark" : "bolt.slash.fill")
+                .font(.system(size: 15))
+                .foregroundStyle(isLoggedIn ? Color(hex: "5865F2") : Color.orange)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(isLoggedIn ? "Discord Cloud Storage" : "Chưa kết nối Cloud")
+                    .font(.caption)
+                    .fontWeight(.bold)
+                    .foregroundStyle(Color.white)
+
+                Text(isLoggedIn ? "\(itemCount) ảnh trong kho" : "Chạm để cấu hình Bot Token")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Color.gray)
+            }
+
+            Spacer()
+
+            if !isLoggedIn {
+                Button("Kết nối", action: onLoginTap)
+                    .font(.system(size: 11, weight: .bold))
+                    .padding(.horizontal, CGFloat(10))
+                    .padding(.vertical, CGFloat(4))
+                    .background(Color(hex: "5865F2"))
+                    .foregroundStyle(Color.white)
+                    .clipShape(Capsule())
+            }
+        }
+        .padding(.horizontal, CGFloat(12))
+        .padding(.vertical, CGFloat(8))
+        .background(Color.white.opacity(0.04))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+}
+
+// 3. Thanh Sync Bar
+struct ModernSyncBar: View {
+    let isSyncing: Bool
+    let progressText: String
+    let onSyncTap: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            if isSyncing {
+                ProgressView().controlSize(.small).tint(.white)
+            } else {
+                Image(systemName: "icloud.and.arrow.up.fill")
+                    .font(.system(size: 13))
+                    .foregroundStyle(Color(hex: "5865F2"))
+            }
+
+            Text(progressText)
+                .font(.caption)
+                .fontWeight(.medium)
+                .foregroundStyle(Color.white)
+                .lineLimit(1)
+
+            Spacer()
+
+            Button(action: onSyncTap) {
+                Text(isSyncing ? "Đang chạy" : "Đồng bộ")
+                    .font(.system(size: 11, weight: .bold))
+                    .padding(.horizontal, CGFloat(14))
+                    .padding(.vertical, CGFloat(6))
+                    .background(Color(hex: "5865F2"))
+                    .clipShape(Capsule())
+                    .foregroundStyle(Color.white)
+            }
+            .disabled(isSyncing)
+        }
+        .padding(.horizontal, CGFloat(14))
+        .padding(.vertical, CGFloat(8))
+        .background(.ultraThinMaterial)
+        .clipShape(Capsule())
+        .overlay(
+            Capsule()
+                .stroke(Color.white.opacity(0.12), lineWidth: 1)
+        )
+        .shadow(color: Color.black.opacity(0.35), radius: 8, y: 4)
+    }
+}
+
+// 4. Thanh công cụ khi chọn nhiều ảnh
 struct MultiSelectBottomBar: View {
     let selectedCount: Int
     let isDownloading: Bool
@@ -401,16 +486,16 @@ struct MultiSelectBottomBar: View {
                     Text(isDownloading ? "Đang tải..." : "Tải về máy (\(selectedCount))")
                         .font(.system(size: 12, weight: .bold))
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
+                .padding(.horizontal, CGFloat(16))
+                .padding(.vertical, CGFloat(8))
                 .background(selectedCount > 0 ? Color(hex: "5865F2") : Color.gray.opacity(0.3))
                 .clipShape(Capsule())
                 .foregroundStyle(Color.white)
             }
             .disabled(selectedCount == 0 || isDownloading)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+        .padding(.horizontal, CGFloat(16))
+        .padding(.vertical, CGFloat(10))
         .background(.ultraThinMaterial)
         .clipShape(Capsule())
         .overlay(
@@ -420,7 +505,7 @@ struct MultiSelectBottomBar: View {
     }
 }
 
-// Trình xem chi tiết Media (Phóng to, xem Video, Tải đơn)
+// 5. Trình xem chi tiết đơn
 struct DetailMediaViewer: View {
     let item: MediaItem
     @Environment(\.dismiss) private var dismiss
@@ -457,12 +542,12 @@ struct DetailMediaViewer: View {
                         Text("Đã lưu vào Camera Roll")
                             .font(.caption)
                             .fontWeight(.bold)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 8)
+                            .padding(.horizontal, CGFloat(16))
+                            .padding(.vertical, CGFloat(8))
                             .background(.ultraThinMaterial)
                             .clipShape(Capsule())
                             .foregroundStyle(Color.white)
-                            .padding(.bottom, 40)
+                            .padding(.bottom, CGFloat(40))
                     }
                 }
             }
