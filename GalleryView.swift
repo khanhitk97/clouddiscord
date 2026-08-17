@@ -6,6 +6,7 @@ struct GalleryView: View {
     @State private var viewModel = GalleryViewModel()
     @State private var selectedItem: MediaItem?
     @State private var showLoginSheet = false
+    @State private var showDashboardSheet = false
     @State private var showUploadOptions = false
     @State private var showPhotosPicker = false
     @State private var selectedPhotos: [PhotosPickerItem] = []
@@ -28,26 +29,34 @@ struct GalleryView: View {
                         CloudStatusCard(
                             isLoggedIn: DiscordService.isLoggedIn,
                             itemCount: viewModel.items.count,
-                            onCardTap: { showLoginSheet = true }
+                            storageText: viewModel.totalCloudStorageFormatted,
+                            onCardTap: {
+                                if DiscordService.isLoggedIn {
+                                    showDashboardSheet = true
+                                } else {
+                                    showLoginSheet = true
+                                }
+                            }
                         )
-                        .padding(.horizontal, CGFloat(10))
-                        .padding(.top, CGFloat(4))
+                        .padding(.horizontal, 10)
+                        .padding(.top, 4)
 
                         if viewModel.items.isEmpty && !viewModel.isLoadingCloud {
                             VStack(spacing: 8) {
                                 Image(systemName: "photo.on.rectangle.angled")
                                     .font(.system(size: 30))
                                     .foregroundStyle(Color.gray.opacity(0.4))
-                                Text("Chưa có ảnh trên Discord")
+                                Text("Chưa có ảnh trên Discord Cloud")
                                     .font(.caption)
                                     .foregroundStyle(Color.gray)
                             }
                             .frame(maxWidth: .infinity)
-                            .padding(.top, CGFloat(80))
+                            .padding(.top, 80)
                         } else {
                             LazyVGrid(columns: columns, spacing: 2) {
                                 ForEach(viewModel.items) { item in
                                     SelectableMediaCard(
+                                        viewModel: viewModel,
                                         item: item,
                                         isSelectMode: isSelectingMultiple,
                                         isSelected: selectedItemIDs.contains(item.id)
@@ -67,7 +76,7 @@ struct GalleryView: View {
                             }
                         }
                     }
-                    .padding(.bottom, CGFloat(110))
+                    .padding(.bottom, 110)
                 }
                 .refreshable {
                     await viewModel.loadCloudMedia()
@@ -84,8 +93,8 @@ struct GalleryView: View {
                             selectedItemIDs.removeAll()
                         }
                     )
-                    .padding(.horizontal, CGFloat(16))
-                    .padding(.bottom, CGFloat(12))
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 12)
                 } else {
                     ModernSyncBar(
                         isSyncing: viewModel.isSyncing,
@@ -98,20 +107,20 @@ struct GalleryView: View {
                             }
                         }
                     )
-                    .padding(.horizontal, CGFloat(16))
-                    .padding(.bottom, CGFloat(12))
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 12)
                 }
 
                 if let message = downloadToastMessage {
                     Text(message)
                         .font(.caption)
                         .fontWeight(.semibold)
-                        .padding(.horizontal, CGFloat(16))
-                        .padding(.vertical, CGFloat(10))
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
                         .background(.ultraThinMaterial)
                         .clipShape(Capsule())
                         .foregroundStyle(Color.white)
-                        .padding(.bottom, CGFloat(80))
+                        .padding(.bottom, 80)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
@@ -158,6 +167,9 @@ struct GalleryView: View {
                     }
                 }
             }
+            .sheet(isPresented: $showDashboardSheet) {
+                CloudDashboardSheet(viewModel: viewModel)
+            }
             .confirmationDialog("Xác nhận xóa", isPresented: $showDeleteConfirm, titleVisibility: .visible) {
                 Button("Xóa \(selectedItemIDs.count) mục khỏi Cloud", role: .destructive) {
                     deleteSelectedItems()
@@ -195,7 +207,7 @@ struct GalleryView: View {
                 }
             }
             .sheet(item: $selectedItem) { item in
-                DetailMediaViewer(item: item, onDelete: {
+                DetailMediaViewer(viewModel: viewModel, item: item, onDelete: {
                     Task {
                         await viewModel.deleteItem(item)
                         showToast(message: "Đã xóa ảnh khỏi Cloud")
@@ -253,7 +265,7 @@ struct GalleryView: View {
                     UIImageWriteToSavedPhotosAlbum(local, nil, nil, nil)
                     successCount += 1
                 } else if let remoteURL = item.remoteURL, let url = URL(string: remoteURL) {
-                    if let rawData = try? await DiscordService.shared.downloadMediaData(url: url),
+                    if let rawData = try? await viewModel.downloadAndDecryptMedia(url: url, isEncrypted: item.isEncrypted),
                        let img = UIImage(data: rawData) {
                         UIImageWriteToSavedPhotosAlbum(img, nil, nil, nil)
                         successCount += 1
@@ -286,18 +298,15 @@ struct GalleryView: View {
     }
 
     private func showToast(message: String) {
-        withAnimation {
-            downloadToastMessage = message
-        }
+        withAnimation { downloadToastMessage = message }
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
-            withAnimation {
-                downloadToastMessage = nil
-            }
+            withAnimation { downloadToastMessage = nil }
         }
     }
 }
 
 struct SelectableMediaCard: View {
+    var viewModel: GalleryViewModel
     let item: MediaItem
     let isSelectMode: Bool
     let isSelected: Bool
@@ -313,27 +322,9 @@ struct SelectableMediaCard: View {
                             .frame(width: geo.size.width, height: geo.size.height)
                             .clipped()
                     } else if let remoteURLString = item.remoteURL, let url = URL(string: remoteURLString) {
-                        AsyncImage(url: url) { phase in
-                            switch phase {
-                            case .empty:
-                                Color.white.opacity(0.04)
-                            case .success(let image):
-                                image
-                                    .resizable()
-                                    .scaledToFill()
-                                    .frame(width: geo.size.width, height: geo.size.height)
-                                    .clipped()
-                            case .failure:
-                                ZStack {
-                                    Color.white.opacity(0.04)
-                                    Image(systemName: "exclamationmark.triangle")
-                                        .font(.system(size: 10))
-                                        .foregroundStyle(Color.gray)
-                                }
-                            @unknown default:
-                                EmptyView()
-                            }
-                        }
+                        DecryptedThumbnailView(viewModel: viewModel, url: url, isEncrypted: item.isEncrypted)
+                            .frame(width: geo.size.width, height: geo.size.height)
+                            .clipped()
                     }
                 }
 
@@ -353,7 +344,7 @@ struct SelectableMediaCard: View {
                                 .frame(width: 18, height: 18)
                         }
                     }
-                    .padding(CGFloat(3))
+                    .padding(3)
                 }
 
                 if !isSelectMode {
@@ -364,9 +355,9 @@ struct SelectableMediaCard: View {
                             HStack(spacing: 1) {
                                 switch item.syncStatus {
                                 case .synced:
-                                    Image(systemName: "checkmark.circle.fill")
+                                    Image(systemName: item.isEncrypted ? "lock.fill" : "checkmark.circle.fill")
                                         .font(.system(size: 7))
-                                        .foregroundStyle(Color.cyan)
+                                        .foregroundStyle(item.isEncrypted ? Color.green : Color.cyan)
                                 case .syncing:
                                     ProgressView().controlSize(.mini).tint(.white)
                                 case .localOnly:
@@ -379,9 +370,9 @@ struct SelectableMediaCard: View {
                                         .foregroundStyle(Color.red)
                                 }
                             }
-                            .padding(CGFloat(2))
+                            .padding(2)
                             .background(Color.black.opacity(0.5), in: RoundedRectangle(cornerRadius: 3))
-                            .padding(CGFloat(2))
+                            .padding(2)
                         }
                     }
                 }
@@ -392,9 +383,45 @@ struct SelectableMediaCard: View {
     }
 }
 
+struct DecryptedThumbnailView: View {
+    var viewModel: GalleryViewModel
+    let url: URL
+    let isEncrypted: Bool
+    @State private var uiImage: UIImage?
+    @State private var isLoading = true
+
+    var body: some View {
+        ZStack {
+            if let image = uiImage {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+            } else if isLoading {
+                Color.white.opacity(0.04)
+            } else {
+                Image(systemName: "exclamationmark.triangle")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Color.gray)
+            }
+        }
+        .task {
+            if let data = try? await viewModel.downloadAndDecryptMedia(url: url, isEncrypted: isEncrypted),
+               let img = UIImage(data: data) {
+                await MainActor.run {
+                    self.uiImage = img
+                    self.isLoading = false
+                }
+            } else {
+                await MainActor.run { self.isLoading = false }
+            }
+        }
+    }
+}
+
 struct CloudStatusCard: View {
     let isLoggedIn: Bool
     let itemCount: Int
+    var storageText: String = "0 MB"
     var onCardTap: () -> Void
 
     var body: some View {
@@ -405,12 +432,12 @@ struct CloudStatusCard: View {
                     .foregroundStyle(isLoggedIn ? Color(hex: "5865F2") : Color.orange)
 
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(isLoggedIn ? "Discord Storage" : "Chưa kết nối Cloud")
+                    Text(isLoggedIn ? "Discord Storage • \(storageText)" : "Chưa kết nối Cloud")
                         .font(.caption)
                         .fontWeight(.bold)
                         .foregroundStyle(Color.white)
 
-                    Text(isLoggedIn ? "\(itemCount) ảnh trên Cloud" : "Chạm để cấu hình Bot Token")
+                    Text(isLoggedIn ? "\(itemCount) file an toàn • Xem Dashboard" : "Chạm để cấu hình Bot Token")
                         .font(.system(size: 10))
                         .foregroundStyle(Color.gray)
                 }
@@ -421,8 +448,8 @@ struct CloudStatusCard: View {
                     .font(.system(size: 11))
                     .foregroundStyle(Color.gray)
             }
-            .padding(.horizontal, CGFloat(12))
-            .padding(.vertical, CGFloat(8))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
             .background(Color.white.opacity(0.04))
             .clipShape(RoundedRectangle(cornerRadius: 10))
         }
@@ -456,16 +483,16 @@ struct ModernSyncBar: View {
             Button(action: onSyncTap) {
                 Text(isSyncing ? "Đang chạy" : "Đồng bộ")
                     .font(.system(size: 11, weight: .bold))
-                    .padding(.horizontal, CGFloat(14))
-                    .padding(.vertical, CGFloat(6))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 6)
                     .background(Color(hex: "5865F2"))
                     .clipShape(Capsule())
                     .foregroundStyle(Color.white)
             }
             .disabled(isSyncing)
         }
-        .padding(.horizontal, CGFloat(14))
-        .padding(.vertical, CGFloat(8))
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
         .background(.ultraThinMaterial)
         .clipShape(Capsule())
         .overlay(
@@ -495,8 +522,8 @@ struct MultiSelectBottomBar: View {
             Button(action: onDeleteTap) {
                 Image(systemName: "trash.fill")
                     .font(.system(size: 13))
-                    .padding(.horizontal, CGFloat(12))
-                    .padding(.vertical, CGFloat(8))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
                     .background(selectedCount > 0 ? Color.red.opacity(0.8) : Color.gray.opacity(0.3))
                     .clipShape(Circle())
                     .foregroundStyle(Color.white)
@@ -514,16 +541,16 @@ struct MultiSelectBottomBar: View {
                     Text(isProcessing ? "Đang xử lý..." : "Tải về (\(selectedCount))")
                         .font(.system(size: 12, weight: .bold))
                 }
-                .padding(.horizontal, CGFloat(14))
-                .padding(.vertical, CGFloat(8))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
                 .background(selectedCount > 0 ? Color(hex: "5865F2") : Color.gray.opacity(0.3))
                 .clipShape(Capsule())
                 .foregroundStyle(Color.white)
             }
             .disabled(selectedCount == 0 || isProcessing)
         }
-        .padding(.horizontal, CGFloat(16))
-        .padding(.vertical, CGFloat(10))
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
         .background(.ultraThinMaterial)
         .clipShape(Capsule())
         .overlay(
@@ -534,9 +561,11 @@ struct MultiSelectBottomBar: View {
 }
 
 struct DetailMediaViewer: View {
+    var viewModel: GalleryViewModel
     let item: MediaItem
     var onDelete: () -> Void
     @Environment(\.dismiss) private var dismiss
+    @State private var decryptedImage: UIImage?
     @State private var isDownloadingSingle = false
     @State private var downloadedToast = false
     @State private var showDeleteConfirm = false
@@ -550,12 +579,12 @@ struct DetailMediaViewer: View {
                     Image(uiImage: local)
                         .resizable()
                         .scaledToFit()
-                } else if let remoteURLString = item.remoteURL, let url = URL(string: remoteURLString) {
-                    AsyncImage(url: url) { image in
-                        image.resizable().scaledToFit()
-                    } placeholder: {
-                        ProgressView().tint(.white)
-                    }
+                } else if let img = decryptedImage {
+                    Image(uiImage: img)
+                        .resizable()
+                        .scaledToFit()
+                } else {
+                    ProgressView().tint(.white)
                 }
 
                 if downloadedToast {
@@ -564,12 +593,20 @@ struct DetailMediaViewer: View {
                         Text("Đã lưu vào Camera Roll")
                             .font(.caption)
                             .fontWeight(.bold)
-                            .padding(.horizontal, CGFloat(16))
-                            .padding(.vertical, CGFloat(8))
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
                             .background(.ultraThinMaterial)
                             .clipShape(Capsule())
                             .foregroundStyle(Color.white)
-                            .padding(.bottom, CGFloat(40))
+                            .padding(.bottom, 40)
+                    }
+                }
+            }
+            .task {
+                if let remoteURLString = item.remoteURL, let url = URL(string: remoteURLString) {
+                    if let rawData = try? await viewModel.downloadAndDecryptMedia(url: url, isEncrypted: item.isEncrypted),
+                       let img = UIImage(data: rawData) {
+                        await MainActor.run { self.decryptedImage = img }
                     }
                 }
             }
@@ -619,11 +656,8 @@ struct DetailMediaViewer: View {
         Task {
             if let local = item.localImage {
                 UIImageWriteToSavedPhotosAlbum(local, nil, nil, nil)
-            } else if let remoteURL = item.remoteURL, let url = URL(string: remoteURL) {
-                if let data = try? await DiscordService.shared.downloadMediaData(url: url),
-                   let img = UIImage(data: data) {
-                    UIImageWriteToSavedPhotosAlbum(img, nil, nil, nil)
-                }
+            } else if let img = decryptedImage {
+                UIImageWriteToSavedPhotosAlbum(img, nil, nil, nil)
             }
             await MainActor.run {
                 isDownloadingSingle = false
