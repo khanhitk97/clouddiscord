@@ -23,20 +23,20 @@ struct GalleryView: View {
                         itemCount: viewModel.items.count,
                         onLoginTap: { showLoginSheet = true }
                     )
-                    .padding(.horizontal, 16)
-                    .padding(.top, 10)
+                    .padding(.horizontal, CGFloat(16))
+                    .padding(.top, CGFloat(10))
 
                     // Lưới hiển thị ảnh
                     if viewModel.items.isEmpty && !viewModel.isLoadingCloud {
                         VStack(spacing: 12) {
                             Image(systemName: "photo.on.rectangle.angled")
                                 .font(.system(size: 44))
-                                .foregroundStyle(.gray.opacity(0.5))
+                                .foregroundStyle(Color.gray.opacity(0.5))
                             Text("Chưa có ảnh nào trên Discord Cloud")
                                 .font(.subheadline)
-                                .foregroundStyle(.gray)
+                                .foregroundStyle(Color.gray)
                         }
-                        .padding(.top, 80)
+                        .padding(.top, CGFloat(80))
                     } else {
                         LazyVGrid(columns: columns, spacing: 8) {
                             ForEach(viewModel.items) { item in
@@ -44,8 +44,8 @@ struct GalleryView: View {
                                     .onTapGesture { selectedItem = item }
                             }
                         }
-                        .padding(16)
-                        .padding(.bottom, 90)
+                        .padding(CGFloat(16))
+                        .padding(.bottom, CGFloat(90))
                     }
                 }
                 .refreshable {
@@ -64,8 +64,8 @@ struct GalleryView: View {
                         }
                     }
                 )
-                .padding(.horizontal, 16)
-                .padding(.bottom, 12)
+                .padding(.horizontal, CGFloat(16))
+                .padding(.bottom, CGFloat(12))
             }
             .navigationTitle("Discord Photos")
             .navigationBarTitleDisplayMode(.inline)
@@ -84,7 +84,7 @@ struct GalleryView: View {
                 ToolbarItem(placement: .topBarLeading) {
                     Button(action: { showLoginSheet = true }) {
                         Image(systemName: DiscordService.isLoggedIn ? "person.crop.circle.badge.checkmark" : "person.crop.circle.badge.exclamationmark")
-                            .foregroundStyle(DiscordService.isLoggedIn ? .green : .orange)
+                            .foregroundStyle(DiscordService.isLoggedIn ? Color.green : Color.orange)
                     }
                 }
             }
@@ -145,7 +145,7 @@ struct ModernPhotoCard: View {
                             ZStack {
                                 Color.white.opacity(0.05)
                                 Image(systemName: "exclamationmark.triangle")
-                                    .foregroundStyle(.gray)
+                                    .foregroundStyle(Color.gray)
                             }
                         @unknown default:
                             EmptyView()
@@ -164,17 +164,17 @@ struct ModernPhotoCard: View {
                 case .synced:
                     Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: 10))
-                        .foregroundStyle(.green)
+                        .foregroundStyle(Color.green)
                 case .syncing:
                     ProgressView().controlSize(.mini).tint(.white)
                 case .localOnly:
                     Image(systemName: "arrow.up.circle")
                         .font(.system(size: 10))
-                        .foregroundStyle(.white.opacity(0.8))
+                        .foregroundStyle(Color.white.opacity(0.8))
                 case .failed:
                     Image(systemName: "xmark.circle.fill")
                         .font(.system(size: 10))
-                        .foregroundStyle(.red)
+                        .foregroundStyle(Color.red)
                 }
             }
             .padding(5)
@@ -186,7 +186,7 @@ struct ModernPhotoCard: View {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .stroke(Color.white.opacity(0.12), lineWidth: 1)
         )
-        .shadow(color: .black.opacity(0.3), radius: 5, y: 3)
+        .shadow(color: Color.black.opacity(0.3), radius: 5, y: 3)
     }
 }
 
@@ -204,18 +204,18 @@ struct CloudStatusCard: View {
                     .frame(width: 44, height: 44)
                 
                 Image(systemName: isLoggedIn ? "externaldrive.badge.checkmark" : "bolt.slash.fill")
-                    .foregroundStyle(isLoggedIn ? Color(hex: "5865F2") : .orange)
+                    .foregroundStyle(isLoggedIn ? Color(hex: "5865F2") : Color.orange)
             }
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(isLoggedIn ? "Discord Storage Đã Kết Nối" : "Chưa Kết Nối Discord")
                     .font(.subheadline)
                     .fontWeight(.semibold)
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Color.white)
 
                 Text(isLoggedIn ? "\(itemCount) mục trong kho lưu trữ" : "Bấm để thiết lập Bot Token")
                     .font(.caption)
-                    .foregroundStyle(.gray)
+                    .foregroundStyle(Color.gray)
             }
 
             Spacer()
@@ -224,14 +224,14 @@ struct CloudStatusCard: View {
                 Button("Kết nối", action: onLoginTap)
                     .font(.caption)
                     .fontWeight(.bold)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
+                    .padding(.horizontal, CGFloat(12))
+                    .padding(.vertical, CGFloat(6))
                     .background(Color(hex: "5865F2"))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Color.white)
                     .clipShape(Capsule())
             }
         }
-        .padding(12)
+        .padding(CGFloat(12))
         .background(Color.white.opacity(0.05))
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .overlay(
@@ -263,7 +263,7 @@ struct ModernSyncBar: View {
                 Text(progressText)
                     .font(.subheadline)
                     .fontWeight(.medium)
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Color.white)
             }
 
             Spacer()
@@ -272,23 +272,23 @@ struct ModernSyncBar: View {
                 Text(isSyncing ? "Đang xử lý..." : "Đồng bộ")
                     .font(.subheadline)
                     .fontWeight(.bold)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
+                    .padding(.horizontal, CGFloat(16))
+                    .padding(.vertical, CGFloat(8))
                     .background(Color(hex: "5865F2"))
                     .clipShape(Capsule())
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Color.white)
             }
             .disabled(isSyncing)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+        .padding(.horizontal, CGFloat(16))
+        .padding(.vertical, CGFloat(10))
         .background(.ultraThinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 22, style: .continuous)
                 .stroke(Color.white.opacity(0.15), lineWidth: 1)
         )
-        .shadow(color: .black.opacity(0.4), radius: 12, y: 6)
+        .shadow(color: Color.black.opacity(0.4), radius: 12, y: 6)
     }
 }
 
@@ -316,7 +316,7 @@ struct DetailMediaViewer: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Đóng") { dismiss() }
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Color.white)
                 }
             }
         }
