@@ -17,13 +17,22 @@ class GalleryViewModel {
         UserDefaults.standard.setValue(enabled, forKey: "auto_full_sync_enabled")
     }
 
+    /// Tổng dung lượng đám mây đã sử dụng (định dạng MB / GB)
+    var totalCloudStorageFormatted: String {
+        let bytes = items.reduce(0) { $0 + $1.fileSize }
+        let mb = Double(bytes) / (1024 * 1024)
+        if mb >= 1024 {
+            return String(format: "%.2f GB", mb / 1024)
+        }
+        return String(format: "%.1f MB", mb)
+    }
+
     init() {
         Task {
             await loadCloudMedia()
         }
     }
 
-    /// Kéo toàn bộ ảnh từ Discord
     @MainActor
     func loadCloudMedia() async {
         guard DiscordService.isLoggedIn else {
@@ -42,15 +51,14 @@ class GalleryViewModel {
                 return false
             }
             self.items = localPending + cloudItems
-            syncProgressText = "Đã tải \(cloudItems.count) ảnh"
+            syncProgressText = "Đã tải \(cloudItems.count) mục"
         } catch {
-            syncProgressText = "Lỗi tải ảnh: \(error.localizedDescription)"
+            syncProgressText = "Lỗi: \(error.localizedDescription)"
         }
 
         isLoadingCloud = false
     }
 
-    /// Tự động quét toàn bộ thư viện ảnh của thiết bị và đưa vào hàng đợi
     @MainActor
     func syncAllDevicePhotos() async {
         let status = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
@@ -73,7 +81,7 @@ class GalleryViewModel {
         allPhotos.enumerateObjects { asset, _, _ in
             imageManager.requestImage(
                 for: asset,
-                targetSize: CGSize(width: 1200, height: 1200),
+                targetSize: CGSize(width: 1400, height: 1400),
                 contentMode: .aspectFit,
                 options: requestOptions
             ) { image, _ in
@@ -86,7 +94,7 @@ class GalleryViewModel {
             newPhotosCount += 1
         }
 
-        syncProgressText = "Đã thêm \(newPhotosCount) ảnh vào hàng đợi"
+        syncProgressText = "Đã xếp hàng \(newPhotosCount) ảnh"
         await triggerSyncAll()
     }
 
@@ -94,16 +102,18 @@ class GalleryViewModel {
     func addLocalImage(_ image: UIImage) {
         let newItem = MediaItem(
             id: UUID().uuidString,
+            messageId: nil,
             remoteURL: nil,
             localImage: image,
             timestamp: Date(),
             syncStatus: .localOnly,
-            filename: "photo_\(Int(Date().timeIntervalSince1970))_\(items.count).jpg"
+            filename: "media_\(Int(Date().timeIntervalSince1970))_\(items.count).jpg",
+            fileSize: image.jpegData(compressionQuality: 0.85)?.count ?? 0,
+            isEncrypted: true
         )
         items.insert(newItem, at: 0)
     }
 
-    /// Upload toàn bộ ảnh local chưa sync lên Discord
     @MainActor
     func triggerSyncAll() async {
         guard DiscordService.isLoggedIn else {
@@ -121,23 +131,25 @@ class GalleryViewModel {
         }
 
         if pendingIndices.isEmpty {
-            syncProgressText = "Tất cả ảnh đã được sao lưu"
+            syncProgressText = "Tất cả file đã được sao lưu"
             isSyncing = false
             return
         }
 
         for (index, idx) in pendingIndices.enumerated() {
-            syncProgressText = "Đang tải lên \(index + 1)/\(pendingIndices.count)..."
+            syncProgressText = "Đang mã hóa & tải lên \(index + 1)/\(pendingIndices.count)..."
             items[idx].syncStatus = .syncing(progress: 0.5)
 
             if let image = items[idx].localImage, let jpegData = image.jpegData(compressionQuality: 0.85) {
                 do {
-                    let result = try await DiscordService.shared.uploadMedia(
-                        imageData: jpegData,
+                    let result = try await DiscordService.shared.uploadEncryptedMedia(
+                        rawData: jpegData,
                         filename: items[idx].filename
                     )
                     items[idx].syncStatus = .synced(remoteURL: result.url)
                     items[idx].remoteURL = result.url
+                    items[idx].messageId = result.messageId
+                    items[idx].fileSize = jpegData.count
                 } catch {
                     items[idx].syncStatus = .failed
                 }
@@ -146,5 +158,35 @@ class GalleryViewModel {
 
         isSyncing = false
         syncProgressText = "Đồng bộ hoàn tất"
+    }
+
+    @MainActor
+    func deleteItem(_ item: MediaItem) async {
+        if let msgId = item.messageId {
+            try? await DiscordService.shared.deleteMedia(messageId: msgId)
+        }
+        items.removeAll { $0.id == item.id }
+    }
+
+    @MainActor
+    func deleteMultipleItems(ids: Set<String>) async {
+        let targets = items.filter { ids.contains($0.id) }
+        for target in targets {
+            if let msgId = target.messageId {
+                try? await DiscordService.shared.deleteMedia(messageId: msgId)
+            }
+        }
+        items.removeAll { ids.contains($0.id) }
+    }
+
+    /// Tính năng TeraBox: Xóa bản sao lưu trên bộ nhớ RAM của máy để giải phóng RAM
+    @MainActor
+    func freeUpLocalMemory() {
+        for idx in items.indices {
+            if case .synced = items[idx].syncStatus {
+                items[idx].localImage = nil
+            }
+        }
+        syncProgressText = "Đã giải phóng bộ nhớ đệm máy"
     }
 }
