@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct CloudDashboardSheet: View {
-    @Bindable var viewModel: GalleryViewModel
+    var viewModel: GalleryViewModel
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -30,10 +30,10 @@ struct CloudDashboardSheet: View {
                                 Text(viewModel.totalCloudStorageFormatted)
                                     .font(.title3)
                                     .fontWeight(.bold)
-                                    .foregroundStyle(.white)
+                                    .foregroundStyle(Color.white)
                                 Text("Đã lưu")
                                     .font(.caption2)
-                                    .foregroundStyle(.gray)
+                                    .foregroundStyle(Color.gray)
                             }
                         }
                         .padding(.top, 20)
@@ -41,7 +41,7 @@ struct CloudDashboardSheet: View {
                         Text("Dung lượng Cloud: Không giới hạn")
                             .font(.caption)
                             .fontWeight(.medium)
-                            .foregroundStyle(.cyan)
+                            .foregroundStyle(Color.cyan)
                     }
 
                     // Thông số chi tiết
@@ -49,28 +49,28 @@ struct CloudDashboardSheet: View {
                         HStack {
                             Text("Tổng số file trên Discord:")
                                 .font(.subheadline)
-                                .foregroundStyle(.gray)
+                                .foregroundStyle(Color.gray)
                             Spacer()
                             Text("\(viewModel.items.count) mục")
                                 .font(.subheadline)
                                 .fontWeight(.semibold)
-                                .foregroundStyle(.white)
+                                .foregroundStyle(Color.white)
                         }
                         Divider().background(Color.white.opacity(0.1))
 
                         HStack {
                             Text("Mã hóa bảo mật:")
                                 .font(.subheadline)
-                                .foregroundStyle(.gray)
+                                .foregroundStyle(Color.gray)
                             Spacer()
                             HStack(spacing: 4) {
                                 Image(systemName: "lock.shield.fill")
                                     .font(.caption)
-                                    .foregroundStyle(.green)
+                                    .foregroundStyle(Color.green)
                                 Text("AES-GCM-256")
                                     .font(.subheadline)
                                     .fontWeight(.semibold)
-                                    .foregroundStyle(.white)
+                                    .foregroundStyle(Color.white)
                             }
                         }
                     }
@@ -95,7 +95,7 @@ struct CloudDashboardSheet: View {
                         .padding(.vertical, 15)
                         .background(Color(hex: "5865F2"))
                         .clipShape(RoundedRectangle(cornerRadius: 14))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Color.white)
                     }
                     .padding(.horizontal, 20)
                     .padding(.bottom, 20)
@@ -106,7 +106,7 @@ struct CloudDashboardSheet: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Đóng") { dismiss() }
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Color.white)
                 }
             }
         }
