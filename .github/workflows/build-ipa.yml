@@ -16,9 +16,9 @@ jobs:
       - name: Select Xcode version
         run: sudo xcode-select -switch /Applications/Xcode.app
 
-      - name: Setup App Entry and Project Structure
+      - name: Setup App Entry Point
         run: |
-          # 1. Tạo file AppEntry.swift nếu chưa có file chứa @main
+          # Tự động tạo AppEntry.swift nếu trong repo chưa có file chứa @main
           if ! grep -rq "@main" *.swift 2>/dev/null; then
             echo "Creating AppEntry.swift..."
             cat << 'EOF' > AppEntry.swift
@@ -35,10 +35,10 @@ jobs:
           EOF
           fi
 
-          # 2. Cài đặt xcodegen
+      - name: Generate Xcode Project with XcodeGen
+        run: |
           brew install xcodegen
 
-          # 3. Tạo cấu hình project.yml chuẩn
           cat << 'EOF' > project.yml
           name: CloudDiscord
           options:
@@ -60,11 +60,9 @@ jobs:
                   CODE_SIGNING_ALLOWED: NO
                   CODE_SIGNING_REQUIRED: NO
                   CODE_SIGN_IDENTITY: ""
-                  SWIFT_OBJC_BRIDGING_HEADER: ""
-                  OTHER_LDFLAGS: ["-framework", "SwiftUI", "-framework", "UIKit"]
+                  OTHER_LDFLAGS: ["-framework", "SwiftUI", "-framework", "UIKit", "-framework", "PhotosUI"]
           EOF
 
-          # 4. Sinh file Xcode Project sạch
           xcodegen generate
 
       - name: Build .app with xcodebuild
