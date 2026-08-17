@@ -1,146 +1,196 @@
 import SwiftUI
+import PhotosUI
 
 struct GalleryView: View {
     @State private var viewModel = GalleryViewModel()
     @State private var selectedItem: MediaItem?
+    @State private var showLoginSheet = false
+    @State private var selectedPhotos: [PhotosPickerItem] = []
 
     private let columns = [
-        GridItem(.flexible(), spacing: 2),
-        GridItem(.flexible(), spacing: 2),
-        GridItem(.flexible(), spacing: 2)
+        GridItem(.adaptive(minimum: 110), spacing: 8)
     ]
 
     var body: some View {
         NavigationStack {
             ZStack(alignment: .bottom) {
-                // 1. Lưới ảnh chính
+                Color(hex: "0D0E12").ignoresSafeArea()
+
                 ScrollView {
-                    LazyVGrid(columns: columns, spacing: 2) {
-                        ForEach(viewModel.items) { item in
-                            MediaThumbnailCell(item: item)
-                                .aspectRatio(1, contentMode: .fill)
-                                .clipped()
-                                .onTapGesture {
-                                    selectedItem = item
-                                }
+                    // Thẻ trạng thái kết nối Cloud
+                    CloudStatusCard(
+                        isLoggedIn: DiscordService.isLoggedIn,
+                        itemCount: viewModel.items.count,
+                        onLoginTap: { showLoginSheet = true }
+                    )
+                    .padding(.horizontal, 16)
+                    .padding(.top, 10)
+
+                    // Lưới hiển thị ảnh thực tế
+                    if viewModel.items.isEmpty && !viewModel.isLoadingCloud {
+                        VStack(spacing: 12) {
+                            Image(systemName: "photo.on.rectangle.angled")
+                                .font(.system(size: 44))
+                                .foregroundStyle(.gray.opacity(0.5))
+                            Text("Chưa có ảnh nào trên Discord Cloud")
+                                .font(.subheadline)
+                                .foregroundStyle(.gray)
                         }
+                        .padding(.top, 80)
+                    } else {
+                        LazyVGrid(columns: columns, spacing: 8) {
+                            ForEach(viewModel.items) { item in
+                                ModernPhotoCard(item: item)
+                                    .onTapGesture { selectedItem = item }
+                            }
+                        }
+                        .padding(16)
+                        .padding(.bottom, 90)
                     }
-                    .padding(.bottom, 90) // Tránh che khuất bởi thanh Sync Bar
+                }
+                .refreshable {
+                    await viewModel.loadCloudMedia()
                 }
 
-                // 2. Thanh trạng thái nổi Glassmorphism ở đáy
-                FloatingSyncBar(
+                // Thanh điều khiển đồng bộ ghim đáy
+                ModernSyncBar(
                     isSyncing: viewModel.isSyncing,
                     progressText: viewModel.syncProgressText,
                     onSyncTap: {
-                        Task { await viewModel.triggerSyncAll() }
+                        if !DiscordService.isLoggedIn {
+                            showLoginSheet = true
+                        } else {
+                            Task { await viewModel.triggerSyncAll() }
+                        }
                     }
                 )
                 .padding(.horizontal, 16)
-                .padding(.bottom, 10)
+                .padding(.bottom, 12)
             }
-            .navigationTitle("Ảnh")
+            .navigationTitle("Discord Photos")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    PhotosPicker(
+                        selection: $selectedPhotos,
+                        maxSelectionCount: 10,
+                        matching: .images
+                    ) {
+                        Image(systemName: "plus.circle.fill")
+                            .font(.system(size: 20))
+                            .foregroundStyle(Color(hex: "5865F2"))
+                    }
+                }
+                ToolbarItem(placement: .topBarLeading) {
+                    Button(action: { showLoginSheet = true }) {
+                        Image(systemName: DiscordService.isLoggedIn ? "person.crop.circle.badge.checkmark" : "person.crop.circle.badge.exclamationmark")
+                            .foregroundStyle(DiscordService.isLoggedIn ? .green : .orange)
+                    }
+                }
+            }
+            .sheet(isPresented: $showLoginSheet) {
+                LoginDiscordView {
+                    Task {
+                        await viewModel.loadCloudMedia()
+                        await viewModel.triggerSyncAll()
+                    }
+                }
+            }
             .sheet(item: $selectedItem) { item in
                 DetailMediaViewer(item: item)
             }
+            .onChange(of: selectedPhotos) { _, newItems in
+                guard !newItems.isEmpty else { return }
+                Task {
+                    for item in newItems {
+                        if let data = try? await item.loadTransferable(type: Data.self),
+                           let image = UIImage(data: data) {
+                            await MainActor.run {
+                                viewModel.addLocalImage(image)
+                            }
+                        }
+                    }
+                    selectedPhotos.removeAll()
+                    await viewModel.triggerSyncAll()
+                }
+            }
         }
     }
 }
 
-// Cell hiển thị từng ảnh + Badge trạng thái Discord
-struct MediaThumbnailCell: View {
+// Thẻ hiển thị ảnh: Render cả ảnh cục bộ lẫn ảnh tải từ Discord CDN
+struct ModernPhotoCard: View {
     let item: MediaItem
 
     var body: some View {
-        ZStack(alignment: .bottomTrailing) {
-            Color.secondary.opacity(0.15)
-            Image(uiImage: item.image)
-                .resizable()
-                .scaledToFit()
-                .padding(15)
-
-            // Badge trạng thái đồng bộ & bảo mật
-            HStack(spacing: 4) {
-                if item.isEncrypted {
-                    Image(systemName: "lock.fill")
-                        .font(.system(size: 8))
-                        .foregroundStyle(.white)
+        ZStack(alignment: .topTrailing) {
+            Group {
+                if let local = item.localImage {
+                    Image(uiImage: local)
+                        .resizable()
+                        .scaledToFill()
+                } else if let remoteURLString = item.remoteURL, let url = URL(string: remoteURLString) {
+                    AsyncImage(url: url) { phase in
+                        switch phase {
+                        case .empty:
+                            ZStack {
+                                Color.white.opacity(0.05)
+                                ProgressView().controlSize(.small).tint(.gray)
+                            }
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .scaledToFill()
+                        case .failure:
+                            ZStack {
+                                Color.white.opacity(0.05)
+                                Image(systemName: "exclamationmark.triangle")
+                                    .foregroundStyle(.gray)
+                            }
+                        @unknown default:
+                            EmptyView()
+                        }
+                    }
                 }
+            }
+            .frame(minWidth: 0, maxWidth: .infinity)
+            .frame(height: 115)
+            .clipped()
+            .background(Color.white.opacity(0.04))
 
+            // Badge trạng thái
+            HStack(spacing: 4) {
                 switch item.syncStatus {
                 case .synced:
-                    Image(systemName: "checkmark.icloud.fill")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.cyan)
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.green)
                 case .syncing:
-                    ProgressView()
-                        .controlSize(.mini)
-                        .tint(.white)
+                    ProgressView().controlSize(.mini).tint(.white)
                 case .localOnly:
-                    Image(systemName: "arrow.triangle.2.circlepath.icloud")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.white.opacity(0.7))
+                    Image(systemName: "arrow.up.circle")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.white.opacity(0.8))
                 case .failed:
-                    Image(systemName: "exclamationmark.icloud.fill")
-                        .font(.system(size: 11))
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 10))
                         .foregroundStyle(.red)
                 }
             }
-            .padding(4)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 6))
+            .padding(5)
+            .background(.ultraThinMaterial, in: Circle())
             .padding(6)
         }
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(Color.white.opacity(0.12), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.3), radius: 5, y: 3)
     }
 }
 
-// Thanh Sync Bar kính mờ phong cách Apple
-struct FloatingSyncBar: View {
-    let isSyncing: Bool
-    let progressText: String
-    let onSyncTap: () -> Void
-
-    var body: some View {
-        HStack(spacing: 12) {
-            if isSyncing {
-                ProgressView()
-                    .controlSize(.small)
-            } else {
-                Image(systemName: "icloud.and.arrow.up")
-                    .foregroundStyle(.cyan)
-            }
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Discord Storage")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                Text(progressText)
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-            }
-
-            Spacer()
-
-            Button(action: onSyncTap) {
-                Text(isSyncing ? "Đang chạy" : "Đồng bộ")
-                    .font(.caption)
-                    .fontWeight(.semibold)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 7)
-                    .background(.cyan, in: Capsule())
-                    .foregroundStyle(.white)
-            }
-            .disabled(isSyncing)
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .background(.ultraThinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .shadow(color: .black.opacity(0.12), radius: 10, y: 5)
-    }
-}
-
-// Màn hình xem chi tiết ảnh
+// Chi tiết xem ảnh phóng to
 struct DetailMediaViewer: View {
     let item: MediaItem
     @Environment(\.dismiss) private var dismiss
@@ -149,9 +199,17 @@ struct DetailMediaViewer: View {
         NavigationStack {
             ZStack {
                 Color.black.ignoresSafeArea()
-                Image(uiImage: item.image)
-                    .resizable()
-                    .scaledToFit()
+                if let local = item.localImage {
+                    Image(uiImage: local)
+                        .resizable()
+                        .scaledToFit()
+                } else if let remoteURLString = item.remoteURL, let url = URL(string: remoteURLString) {
+                    AsyncImage(url: url) { image in
+                        image.resizable().scaledToFit()
+                    } placeholder: {
+                        ProgressView().tint(.white)
+                    }
+                }
             }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
