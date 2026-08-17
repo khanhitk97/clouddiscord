@@ -6,7 +6,6 @@ struct GalleryView: View {
     @State private var viewModel = GalleryViewModel()
     @State private var selectedItem: MediaItem?
     @State private var showLoginSheet = false
-    @State private var showDashboardSheet = false
     @State private var showUploadOptions = false
     @State private var showPhotosPicker = false
     @State private var selectedPhotos: [PhotosPickerItem] = []
@@ -26,18 +25,10 @@ struct GalleryView: View {
 
                 ScrollView {
                     VStack(spacing: 8) {
-                        // Thẻ Cloud Status (Bấm vào để mở Dashboard chi tiết)
                         CloudStatusCard(
                             isLoggedIn: DiscordService.isLoggedIn,
                             itemCount: viewModel.items.count,
-                            storageText: viewModel.totalCloudStorageFormatted,
-                            onCardTap: {
-                                if DiscordService.isLoggedIn {
-                                    showDashboardSheet = true
-                                } else {
-                                    showLoginSheet = true
-                                }
-                            }
+                            onCardTap: { showLoginSheet = true }
                         )
                         .padding(.horizontal, CGFloat(10))
                         .padding(.top, CGFloat(4))
@@ -47,7 +38,7 @@ struct GalleryView: View {
                                 Image(systemName: "photo.on.rectangle.angled")
                                     .font(.system(size: 30))
                                     .foregroundStyle(Color.gray.opacity(0.4))
-                                Text("Chưa có ảnh trên Discord Cloud")
+                                Text("Chưa có ảnh trên Discord")
                                     .font(.caption)
                                     .foregroundStyle(Color.gray)
                             }
@@ -167,16 +158,13 @@ struct GalleryView: View {
                     }
                 }
             }
-            .sheet(isPresented: $showDashboardSheet) {
-                CloudDashboardSheet(viewModel: viewModel)
-            }
             .confirmationDialog("Xác nhận xóa", isPresented: $showDeleteConfirm, titleVisibility: .visible) {
                 Button("Xóa \(selectedItemIDs.count) mục khỏi Cloud", role: .destructive) {
                     deleteSelectedItems()
                 }
                 Button("Hủy", role: .cancel) {}
             } message: {
-                Text("Các file này sẽ bị xóa vĩnh viễn khỏi máy chủ Discord.")
+                Text("Các file này sẽ bị xóa khỏi máy chủ Discord.")
             }
             .confirmationDialog("Lựa chọn chế độ sao lưu", isPresented: $showUploadOptions, titleVisibility: .visible) {
                 Button("Đồng bộ tất cả thư viện (Tự động)") {
@@ -265,7 +253,7 @@ struct GalleryView: View {
                     UIImageWriteToSavedPhotosAlbum(local, nil, nil, nil)
                     successCount += 1
                 } else if let remoteURL = item.remoteURL, let url = URL(string: remoteURL) {
-                    if let rawData = try? await DiscordService.shared.downloadAndDecryptMedia(url: url, isEncrypted: item.isEncrypted),
+                    if let rawData = try? await DiscordService.shared.downloadMediaData(url: url),
                        let img = UIImage(data: rawData) {
                         UIImageWriteToSavedPhotosAlbum(img, nil, nil, nil)
                         successCount += 1
@@ -309,7 +297,6 @@ struct GalleryView: View {
     }
 }
 
-// 1. Thẻ hiển thị ô vuông
 struct SelectableMediaCard: View {
     let item: MediaItem
     let isSelectMode: Bool
@@ -326,9 +313,27 @@ struct SelectableMediaCard: View {
                             .frame(width: geo.size.width, height: geo.size.height)
                             .clipped()
                     } else if let remoteURLString = item.remoteURL, let url = URL(string: remoteURLString) {
-                        DecryptedThumbnailView(url: url, isEncrypted: item.isEncrypted)
-                            .frame(width: geo.size.width, height: geo.size.height)
-                            .clipped()
+                        AsyncImage(url: url) { phase in
+                            switch phase {
+                            case .empty:
+                                Color.white.opacity(0.04)
+                            case .success(let image):
+                                image
+                                    .resizable()
+                                    .scaledToFill()
+                                    .frame(width: geo.size.width, height: geo.size.height)
+                                    .clipped()
+                            case .failure:
+                                ZStack {
+                                    Color.white.opacity(0.04)
+                                    Image(systemName: "exclamationmark.triangle")
+                                        .font(.system(size: 10))
+                                        .foregroundStyle(Color.gray)
+                                }
+                            @unknown default:
+                                EmptyView()
+                            }
+                        }
                     }
                 }
 
@@ -359,9 +364,9 @@ struct SelectableMediaCard: View {
                             HStack(spacing: 1) {
                                 switch item.syncStatus {
                                 case .synced:
-                                    Image(systemName: item.isEncrypted ? "lock.fill" : "checkmark.circle.fill")
+                                    Image(systemName: "checkmark.circle.fill")
                                         .font(.system(size: 7))
-                                        .foregroundStyle(item.isEncrypted ? Color.green : Color.cyan)
+                                        .foregroundStyle(Color.cyan)
                                 case .syncing:
                                     ProgressView().controlSize(.mini).tint(.white)
                                 case .localOnly:
@@ -387,46 +392,9 @@ struct SelectableMediaCard: View {
     }
 }
 
-// 2. View tải và giải mã ảnh tức thời cho từng ô lưới
-struct DecryptedThumbnailView: View {
-    let url: URL
-    let isEncrypted: Bool
-    @State private var uiImage: UIImage?
-    @State private var isLoading = true
-
-    var body: some View {
-        ZStack {
-            if let image = uiImage {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFill()
-            } else if isLoading {
-                Color.white.opacity(0.04)
-            } else {
-                Image(systemName: "exclamationmark.triangle")
-                    .font(.system(size: 10))
-                    .foregroundStyle(Color.gray)
-            }
-        }
-        .task {
-            if let data = try? await DiscordService.shared.downloadAndDecryptMedia(url: url, isEncrypted: isEncrypted),
-               let img = UIImage(data: data) {
-                await MainActor.run {
-                    self.uiImage = img
-                    self.isLoading = false
-                }
-            } else {
-                await MainActor.run { self.isLoading = false }
-            }
-        }
-    }
-}
-
-// 3. Thẻ trạng thái kết nối Cloud
 struct CloudStatusCard: View {
     let isLoggedIn: Bool
     let itemCount: Int
-    var storageText: String = "0 MB"
     var onCardTap: () -> Void
 
     var body: some View {
@@ -437,12 +405,12 @@ struct CloudStatusCard: View {
                     .foregroundStyle(isLoggedIn ? Color(hex: "5865F2") : Color.orange)
 
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(isLoggedIn ? "Discord Storage • \(storageText)" : "Chưa kết nối Cloud")
+                    Text(isLoggedIn ? "Discord Storage" : "Chưa kết nối Cloud")
                         .font(.caption)
                         .fontWeight(.bold)
                         .foregroundStyle(Color.white)
 
-                    Text(isLoggedIn ? "\(itemCount) file an toàn • Xem Dashboard" : "Chạm để cấu hình Bot Token")
+                    Text(isLoggedIn ? "\(itemCount) ảnh trên Cloud" : "Chạm để cấu hình Bot Token")
                         .font(.system(size: 10))
                         .foregroundStyle(Color.gray)
                 }
@@ -462,7 +430,6 @@ struct CloudStatusCard: View {
     }
 }
 
-// 4. Thanh Sync Bar
 struct ModernSyncBar: View {
     let isSyncing: Bool
     let progressText: String
@@ -502,14 +469,12 @@ struct ModernSyncBar: View {
         .background(.ultraThinMaterial)
         .clipShape(Capsule())
         .overlay(
-            Capsule()
-                .stroke(Color.white.opacity(0.12), lineWidth: 1)
+            Capsule().stroke(Color.white.opacity(0.12), lineWidth: 1)
         )
         .shadow(color: Color.black.opacity(0.35), radius: 8, y: 4)
     }
 }
 
-// 5. Thanh công cụ khi chọn nhiều ảnh
 struct MultiSelectBottomBar: View {
     let selectedCount: Int
     let isProcessing: Bool
@@ -568,19 +533,13 @@ struct MultiSelectBottomBar: View {
     }
 }
 
-// 6. Trình xem chi tiết đơn
 struct DetailMediaViewer: View {
     let item: MediaItem
     var onDelete: () -> Void
     @Environment(\.dismiss) private var dismiss
-    @State private var decryptedImage: UIImage?
     @State private var isDownloadingSingle = false
     @State private var downloadedToast = false
     @State private var showDeleteConfirm = false
-
-    var isVideo: Bool {
-        item.filename.lowercased().hasSuffix(".mp4") || item.filename.lowercased().hasSuffix(".mov")
-    }
 
     var body: some View {
         NavigationStack {
@@ -591,12 +550,12 @@ struct DetailMediaViewer: View {
                     Image(uiImage: local)
                         .resizable()
                         .scaledToFit()
-                } else if let img = decryptedImage {
-                    Image(uiImage: img)
-                        .resizable()
-                        .scaledToFit()
-                } else {
-                    ProgressView().tint(.white)
+                } else if let remoteURLString = item.remoteURL, let url = URL(string: remoteURLString) {
+                    AsyncImage(url: url) { image in
+                        image.resizable().scaledToFit()
+                    } placeholder: {
+                        ProgressView().tint(.white)
+                    }
                 }
 
                 if downloadedToast {
@@ -611,14 +570,6 @@ struct DetailMediaViewer: View {
                             .clipShape(Capsule())
                             .foregroundStyle(Color.white)
                             .padding(.bottom, CGFloat(40))
-                    }
-                }
-            }
-            .task {
-                if let remoteURLString = item.remoteURL, let url = URL(string: remoteURLString) {
-                    if let rawData = try? await DiscordService.shared.downloadAndDecryptMedia(url: url, isEncrypted: item.isEncrypted),
-                       let img = UIImage(data: rawData) {
-                        await MainActor.run { self.decryptedImage = img }
                     }
                 }
             }
@@ -668,8 +619,11 @@ struct DetailMediaViewer: View {
         Task {
             if let local = item.localImage {
                 UIImageWriteToSavedPhotosAlbum(local, nil, nil, nil)
-            } else if let img = decryptedImage {
-                UIImageWriteToSavedPhotosAlbum(img, nil, nil, nil)
+            } else if let remoteURL = item.remoteURL, let url = URL(string: remoteURL) {
+                if let data = try? await DiscordService.shared.downloadMediaData(url: url),
+                   let img = UIImage(data: data) {
+                    UIImageWriteToSavedPhotosAlbum(img, nil, nil, nil)
+                }
             }
             await MainActor.run {
                 isDownloadingSingle = false
