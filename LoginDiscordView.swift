@@ -7,7 +7,7 @@ struct LoginDiscordView: View {
     @State private var isVerifying = false
     @State private var errorMessage: String?
     var onLoginSuccess: () -> Void
-
+ 
     var body: some View {
         NavigationStack {
             ZStack {
