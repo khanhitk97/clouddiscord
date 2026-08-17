@@ -3,7 +3,7 @@ name: Build CloudDiscord IPA
 on:
   push:
     branches: [ "main" ]
-  workflow_dispatch: # Cho phép bấm nút "Run workflow" thủ công bất cứ lúc nào
+  workflow_dispatch:
 
 jobs:
   build-ipa:
@@ -16,10 +16,22 @@ jobs:
       - name: Select Xcode version
         run: sudo xcode-select -switch /Applications/Xcode.app
 
-      - name: Build .app with xcodebuild
+      - name: Find & Build Xcode Project
         run: |
+          # Tự động tìm file .xcodeproj trong toàn bộ thư mục repo
+          PROJECT_PATH=$(find . -name "*.xcodeproj" -maxdepth 3 | head -n 1)
+          
+          if [ -z "$PROJECT_PATH" ]; then
+            echo "❌ Không tìm thấy file .xcodeproj nào trong repository!"
+            echo "Danh sách các file hiện có:"
+            ls -la
+            exit 1
+          fi
+
+          echo "🔍 Đã tìm thấy dự án tại: $PROJECT_PATH"
+
           xcodebuild clean build \
-            -project "CloudDiscord.xcodeproj" \
+            -project "$PROJECT_PATH" \
             -scheme "CloudDiscord" \
             -sdk iphoneos \
             -configuration Release \
@@ -33,7 +45,7 @@ jobs:
         run: |
           cd ${{ runner.temp }}/build/Release-iphoneos
           mkdir -p Payload
-          cp -r CloudDiscord.app Payload/ 2>/dev/null || cp -r *.app Payload/
+          cp -r *.app Payload/
           zip -r "CloudDiscord.ipa" Payload
           mkdir -p ${{ github.workspace }}/output
           mv CloudDiscord.ipa ${{ github.workspace }}/output/
