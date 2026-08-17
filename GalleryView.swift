@@ -8,51 +8,59 @@ struct GalleryView: View {
     @State private var selectedPhotos: [PhotosPickerItem] = []
 
     private let columns = [
-        GridItem(.adaptive(minimum: 110), spacing: 8)
+        GridItem(.flexible(), spacing: 2),
+        GridItem(.flexible(), spacing: 2),
+        GridItem(.flexible(), spacing: 2)
     ]
 
     var body: some View {
         NavigationStack {
             ZStack(alignment: .bottom) {
-                Color(hex: "0D0E12").ignoresSafeArea()
+                Color(hex: "0D0E12")
+                    .ignoresSafeArea()
 
+                // Scroll view chính
                 ScrollView {
-                    // Thẻ trạng thái kết nối Cloud
-                    CloudStatusCard(
-                        isLoggedIn: DiscordService.isLoggedIn,
-                        itemCount: viewModel.items.count,
-                        onLoginTap: { showLoginSheet = true }
-                    )
-                    .padding(.horizontal, CGFloat(16))
-                    .padding(.top, CGFloat(10))
+                    VStack(spacing: 8) {
+                        CloudStatusCard(
+                            isLoggedIn: DiscordService.isLoggedIn,
+                            itemCount: viewModel.items.count,
+                            onLoginTap: { showLoginSheet = true }
+                        )
+                        .padding(.horizontal, 12)
+                        .padding(.top, 6)
 
-                    // Lưới hiển thị ảnh
-                    if viewModel.items.isEmpty && !viewModel.isLoadingCloud {
-                        VStack(spacing: 12) {
-                            Image(systemName: "photo.on.rectangle.angled")
-                                .font(.system(size: 44))
-                                .foregroundStyle(Color.gray.opacity(0.5))
-                            Text("Chưa có ảnh nào trên Discord Cloud")
-                                .font(.subheadline)
-                                .foregroundStyle(Color.gray)
-                        }
-                        .padding(.top, CGFloat(80))
-                    } else {
-                        LazyVGrid(columns: columns, spacing: 8) {
-                            ForEach(viewModel.items) { item in
-                                ModernPhotoCard(item: item)
-                                    .onTapGesture { selectedItem = item }
+                        if viewModel.items.isEmpty && !viewModel.isLoadingCloud {
+                            VStack(spacing: 10) {
+                                Image(systemName: "photo.on.rectangle.angled")
+                                    .font(.system(size: 36))
+                                    .foregroundStyle(Color.gray.opacity(0.4))
+                                Text("Chưa có ảnh trên Discord Cloud")
+                                    .font(.subheadline)
+                                    .foregroundStyle(Color.gray)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.top, 100)
+                        } else {
+                            LazyVGrid(columns: columns, spacing: 2) {
+                                ForEach(viewModel.items) { item in
+                                    ModernPhotoCard(item: item)
+                                        .aspectRatio(1, contentMode: .fill)
+                                        .clipped()
+                                        .contentShape(Rectangle())
+                                        .onTapGesture { selectedItem = item }
+                                }
                             }
                         }
-                        .padding(CGFloat(16))
-                        .padding(.bottom, CGFloat(90))
                     }
+                    // Khoảng đệm đáy để cuộn không bị che bởi Floating Sync Bar
+                    .padding(.bottom, 110)
                 }
                 .refreshable {
                     await viewModel.loadCloudMedia()
                 }
 
-                // Thanh điều khiển đồng bộ ghim đáy
+                // Thanh Sync Bar nổi phía trên Home Indicator
                 ModernSyncBar(
                     isSyncing: viewModel.isSyncing,
                     progressText: viewModel.syncProgressText,
@@ -64,8 +72,8 @@ struct GalleryView: View {
                         }
                     }
                 )
-                .padding(.horizontal, CGFloat(16))
-                .padding(.bottom, CGFloat(12))
+                .padding(.horizontal, 16)
+                .padding(.bottom, 16)
             }
             .navigationTitle("Discord Photos")
             .navigationBarTitleDisplayMode(.inline)
@@ -83,7 +91,8 @@ struct GalleryView: View {
                 }
                 ToolbarItem(placement: .topBarLeading) {
                     Button(action: { showLoginSheet = true }) {
-                        Image(systemName: DiscordService.isLoggedIn ? "person.crop.circle.badge.checkmark" : "person.crop.circle.badge.exclamationmark")
+                        Image(systemName: DiscordService.isLoggedIn ? "checkmark.seal.fill" : "exclamationmark.circle.fill")
+                            .font(.system(size: 18))
                             .foregroundStyle(DiscordService.isLoggedIn ? Color.green : Color.orange)
                     }
                 }
@@ -118,12 +127,11 @@ struct GalleryView: View {
     }
 }
 
-// 1. Thẻ hiển thị từng ảnh
 struct ModernPhotoCard: View {
     let item: MediaItem
 
     var body: some View {
-        ZStack(alignment: .topTrailing) {
+        ZStack(alignment: .bottomTrailing) {
             Group {
                 if let local = item.localImage {
                     Image(uiImage: local)
@@ -134,8 +142,8 @@ struct ModernPhotoCard: View {
                         switch phase {
                         case .empty:
                             ZStack {
-                                Color.white.opacity(0.05)
-                                ProgressView().controlSize(.small).tint(.gray)
+                                Color.white.opacity(0.04)
+                                ProgressView().controlSize(.mini).tint(.gray)
                             }
                         case .success(let image):
                             image
@@ -143,8 +151,9 @@ struct ModernPhotoCard: View {
                                 .scaledToFill()
                         case .failure:
                             ZStack {
-                                Color.white.opacity(0.05)
+                                Color.white.opacity(0.04)
                                 Image(systemName: "exclamationmark.triangle")
+                                    .font(.system(size: 14))
                                     .foregroundStyle(Color.gray)
                             }
                         @unknown default:
@@ -153,68 +162,52 @@ struct ModernPhotoCard: View {
                     }
                 }
             }
-            .frame(minWidth: 0, maxWidth: .infinity)
-            .frame(height: 115)
-            .clipped()
-            .background(Color.white.opacity(0.04))
 
-            // Badge trạng thái
-            HStack(spacing: 4) {
+            HStack(spacing: 3) {
                 switch item.syncStatus {
                 case .synced:
-                    Image(systemName: "checkmark.circle.fill")
+                    Image(systemName: "checkmark.icloud.fill")
                         .font(.system(size: 10))
-                        .foregroundStyle(Color.green)
+                        .foregroundStyle(Color.cyan)
                 case .syncing:
                     ProgressView().controlSize(.mini).tint(.white)
                 case .localOnly:
-                    Image(systemName: "arrow.up.circle")
+                    Image(systemName: "arrow.triangle.2.circlepath.icloud")
                         .font(.system(size: 10))
-                        .foregroundStyle(Color.white.opacity(0.8))
+                        .foregroundStyle(Color.white.opacity(0.85))
                 case .failed:
-                    Image(systemName: "xmark.circle.fill")
+                    Image(systemName: "exclamationmark.icloud.fill")
                         .font(.system(size: 10))
                         .foregroundStyle(Color.red)
                 }
             }
-            .padding(5)
-            .background(.ultraThinMaterial, in: Circle())
-            .padding(6)
+            .padding(4)
+            .background(Color.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 5))
+            .padding(4)
         }
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(Color.white.opacity(0.12), lineWidth: 1)
-        )
-        .shadow(color: Color.black.opacity(0.3), radius: 5, y: 3)
+        .background(Color.white.opacity(0.03))
     }
 }
 
-// 2. Thẻ trạng thái Server / Account
 struct CloudStatusCard: View {
     let isLoggedIn: Bool
     let itemCount: Int
     var onLoginTap: () -> Void
 
     var body: some View {
-        HStack(spacing: 14) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(isLoggedIn ? Color(hex: "5865F2").opacity(0.2) : Color.orange.opacity(0.2))
-                    .frame(width: 44, height: 44)
-                
-                Image(systemName: isLoggedIn ? "externaldrive.badge.checkmark" : "bolt.slash.fill")
-                    .foregroundStyle(isLoggedIn ? Color(hex: "5865F2") : Color.orange)
-            }
+        HStack(spacing: 12) {
+            Image(systemName: isLoggedIn ? "externaldrive.badge.checkmark" : "bolt.slash.fill")
+                .font(.system(size: 18))
+                .foregroundStyle(isLoggedIn ? Color(hex: "5865F2") : Color.orange)
 
-            VStack(alignment: .leading, spacing: 3) {
-                Text(isLoggedIn ? "Discord Storage Đã Kết Nối" : "Chưa Kết Nối Discord")
-                    .font(.subheadline)
-                    .fontWeight(.semibold)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(isLoggedIn ? "Discord Cloud Storage" : "Chưa kết nối Cloud")
+                    .font(.caption)
+                    .fontWeight(.bold)
                     .foregroundStyle(Color.white)
 
-                Text(isLoggedIn ? "\(itemCount) mục trong kho lưu trữ" : "Bấm để thiết lập Bot Token")
-                    .font(.caption)
+                Text(isLoggedIn ? "\(itemCount) ảnh trong kho" : "Chạm để cấu hình Bot Token")
+                    .font(.system(size: 11))
                     .foregroundStyle(Color.gray)
             }
 
@@ -222,26 +215,21 @@ struct CloudStatusCard: View {
 
             if !isLoggedIn {
                 Button("Kết nối", action: onLoginTap)
-                    .font(.caption)
-                    .fontWeight(.bold)
-                    .padding(.horizontal, CGFloat(12))
-                    .padding(.vertical, CGFloat(6))
+                    .font(.system(size: 12, weight: .bold))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 5)
                     .background(Color(hex: "5865F2"))
                     .foregroundStyle(Color.white)
                     .clipShape(Capsule())
             }
         }
-        .padding(CGFloat(12))
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
         .background(Color.white.opacity(0.05))
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-        .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .stroke(Color.white.opacity(0.1), lineWidth: 1)
-        )
+        .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 }
 
-// 3. Thanh điều khiển đồng bộ ghim đáy
 struct ModernSyncBar: View {
     let isSyncing: Bool
     let progressText: String
@@ -249,50 +237,45 @@ struct ModernSyncBar: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            ZStack {
-                Circle()
-                    .fill(Color(hex: "5865F2").opacity(0.2))
-                    .frame(width: 36, height: 36)
-                
+            if isSyncing {
+                ProgressView().controlSize(.small).tint(.white)
+            } else {
                 Image(systemName: "icloud.and.arrow.up.fill")
-                    .font(.system(size: 14))
+                    .font(.system(size: 15))
                     .foregroundStyle(Color(hex: "5865F2"))
             }
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(progressText)
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-                    .foregroundStyle(Color.white)
-            }
+            Text(progressText)
+                .font(.subheadline)
+                .fontWeight(.medium)
+                .foregroundStyle(Color.white)
+                .lineLimit(1)
 
             Spacer()
 
             Button(action: onSyncTap) {
-                Text(isSyncing ? "Đang xử lý..." : "Đồng bộ")
-                    .font(.subheadline)
-                    .fontWeight(.bold)
-                    .padding(.horizontal, CGFloat(16))
-                    .padding(.vertical, CGFloat(8))
+                Text(isSyncing ? "Đang chạy" : "Đồng bộ")
+                    .font(.system(size: 13, weight: .bold))
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
                     .background(Color(hex: "5865F2"))
                     .clipShape(Capsule())
                     .foregroundStyle(Color.white)
             }
             .disabled(isSyncing)
         }
-        .padding(.horizontal, CGFloat(16))
-        .padding(.vertical, CGFloat(10))
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
         .background(.ultraThinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .clipShape(Capsule())
         .overlay(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
+            Capsule()
                 .stroke(Color.white.opacity(0.15), lineWidth: 1)
         )
-        .shadow(color: Color.black.opacity(0.4), radius: 12, y: 6)
+        .shadow(color: Color.black.opacity(0.4), radius: 10, y: 5)
     }
 }
 
-// 4. Chi tiết xem ảnh phóng to
 struct DetailMediaViewer: View {
     let item: MediaItem
     @Environment(\.dismiss) private var dismiss
@@ -316,6 +299,8 @@ struct DetailMediaViewer: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Đóng") { dismiss() }
+                        .font(.body)
+                        .fontWeight(.semibold)
                         .foregroundStyle(Color.white)
                 }
             }
