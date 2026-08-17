@@ -1,5 +1,5 @@
 import Foundation
-import UIKit
+import UIKit 
 
 // Model ánh xạ JSON phản hồi từ Discord
 struct DiscordAttachmentResponse: Decodable {
