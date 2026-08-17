@@ -1,7 +1,6 @@
 import Foundation
-import UIKit 
+import UIKit
 
-// Model ánh xạ JSON phản hồi từ Discord
 struct DiscordAttachmentResponse: Decodable {
     let id: String
     let url: String
@@ -41,7 +40,6 @@ actor DiscordService {
         return !botToken.isEmpty && !channelId.isEmpty
     }
 
-    /// Kiểm tra token và quyền truy cập kênh
     func verifyConnection() async -> Bool {
         let token = await DiscordService.botToken
         guard let url = URL(string: "https://discord.com/api/v10/users/@me") else { return false }
@@ -57,7 +55,6 @@ actor DiscordService {
         }
     }
 
-    /// Kéo danh sách file media đã lưu trên kênh Discord (Tối đa 100 tin nhắn gần nhất)
     func fetchChannelMedia(limit: Int = 100) async throws -> [MediaItem] {
         let token = await DiscordService.botToken
         let channel = await DiscordService.channelId
@@ -83,21 +80,20 @@ actor DiscordService {
         for msg in messages {
             let date = isoFormatter.date(from: msg.timestamp) ?? Date()
             for att in msg.attachments {
-                // Chỉ lấy file định dạng hình ảnh
-                let isImage = att.contentType?.starts(with: "image/") == true ||
-                              att.filename.hasSuffix(".jpg") ||
-                              att.filename.hasSuffix(".png") ||
-                              att.filename.hasSuffix(".jpeg") ||
-                              att.filename.hasSuffix(".webp")
+                let isEncrypted = att.filename.hasSuffix(".enc")
+                let isMedia = isEncrypted || att.contentType?.starts(with: "image/") == true || att.contentType?.starts(with: "video/") == true
 
-                if isImage {
+                if isMedia {
                     let item = MediaItem(
                         id: att.id,
+                        messageId: msg.id,
                         remoteURL: att.url,
                         localImage: nil,
                         timestamp: date,
                         syncStatus: .synced(remoteURL: att.url),
-                        filename: att.filename
+                        filename: att.filename,
+                        fileSize: att.size,
+                        isEncrypted: isEncrypted
                     )
                     fetchedItems.append(item)
                 }
@@ -106,14 +102,18 @@ actor DiscordService {
         return fetchedItems
     }
 
-    /// Tải dữ liệu ảnh nhị phân lên kênh Discord
-    func uploadMedia(imageData: Data, filename: String) async throws -> (url: String, messageId: String) {
+    /// Tải lên dữ liệu đã mã hóa an toàn
+    func uploadEncryptedMedia(rawData: Data, filename: String) async throws -> (url: String, messageId: String) {
         let token = await DiscordService.botToken
         let channel = await DiscordService.channelId
 
         guard let url = URL(string: "https://discord.com/api/v10/channels/\(channel)/messages") else {
             throw URLError(.badURL)
         }
+
+        // 1. Mã hóa dữ liệu Client-side
+        let encryptedData = (try? EncryptionService.shared.encrypt(data: rawData)) ?? rawData
+        let safeFilename = filename + ".enc"
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -124,9 +124,9 @@ actor DiscordService {
 
         var body = Data()
         body.append("--\(boundary)\r\n".data(using: .utf8)!)
-        body.append("Content-Disposition: form-data; name=\"files[0]\"; filename=\"\(filename)\"\r\n".data(using: .utf8)!)
-        body.append("Content-Type: image/jpeg\r\n\r\n".data(using: .utf8)!)
-        body.append(imageData)
+        body.append("Content-Disposition: form-data; name=\"files[0]\"; filename=\"\(safeFilename)\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: application/octet-stream\r\n\r\n".data(using: .utf8)!)
+        body.append(encryptedData)
         body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
 
         let (data, response) = try await URLSession.shared.upload(for: request, from: body)
@@ -140,5 +140,32 @@ actor DiscordService {
         }
 
         return (url: firstAttachment.url, messageId: msg.id)
+    }
+
+    /// Tải về và tự động giải mã nhị phân
+    func downloadAndDecryptMedia(url: URL, isEncrypted: Bool) async throws -> Data {
+        let (data, _) = try await URLSession.shared.data(from: url)
+        if isEncrypted {
+            return try EncryptionService.shared.decrypt(data: data)
+        }
+        return data
+    }
+
+    func deleteMedia(messageId: String) async throws {
+        let token = await DiscordService.botToken
+        let channel = await DiscordService.channelId
+
+        guard let url = URL(string: "https://discord.com/api/v10/channels/\(channel)/messages/\(messageId)") else {
+            throw URLError(.badURL)
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        request.setValue("Bot \(token)", forHTTPHeaderField: "Authorization")
+
+        let (_, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
     }
 }
