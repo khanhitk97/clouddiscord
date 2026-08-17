@@ -102,7 +102,12 @@ actor DiscordService {
         return fetchedItems
     }
 
-    /// Tải lên dữ liệu đã mã hóa an toàn
+    /// Upload dữ liệu (tự động mã hóa AES-GCM trước khi gửi)
+    func uploadMedia(imageData: Data, filename: String) async throws -> (url: String, messageId: String) {
+        return try await uploadEncryptedMedia(rawData: imageData, filename: filename)
+    }
+
+    /// Upload dữ liệu mã hóa chi tiết
     func uploadEncryptedMedia(rawData: Data, filename: String) async throws -> (url: String, messageId: String) {
         let token = await DiscordService.botToken
         let channel = await DiscordService.channelId
@@ -111,9 +116,8 @@ actor DiscordService {
             throw URLError(.badURL)
         }
 
-        // 1. Mã hóa dữ liệu Client-side
         let encryptedData = (try? EncryptionService.shared.encrypt(data: rawData)) ?? rawData
-        let safeFilename = filename + ".enc"
+        let safeFilename = filename.hasSuffix(".enc") ? filename : (filename + ".enc")
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -142,7 +146,7 @@ actor DiscordService {
         return (url: firstAttachment.url, messageId: msg.id)
     }
 
-    /// Tải về và tự động giải mã nhị phân
+    /// Tải về và tự động giải mã
     func downloadAndDecryptMedia(url: URL, isEncrypted: Bool) async throws -> Data {
         let (data, _) = try await URLSession.shared.data(from: url)
         if isEncrypted {
@@ -151,6 +155,7 @@ actor DiscordService {
         return data
     }
 
+    /// Xóa tin nhắn / file trên Discord
     func deleteMedia(messageId: String) async throws {
         let token = await DiscordService.botToken
         let channel = await DiscordService.channelId
